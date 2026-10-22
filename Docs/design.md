@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
+_Status: milestone 1 implemented and Mac-tested (2026-10-22); milestones 2–5 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -232,6 +232,10 @@ results are not affected.
 - **English-only embedder.** Spanish content needs a multilingual model (e.g. `multilingual-e5-small`,
   ~240 MB at float16; its 250k-token vocabulary needs a slightly different export). Test before promising.
 - **Adds ~64 MB** to an app.
+- **PDFs set in Apple's system font** (e.g. exported from Pages/Notes) lose bold/monospace when read
+  back: PDFKit reports the private `.SF…` font as Times New Roman (found 2026-10-22 in milestone 1).
+  Headings are then detected by size only and code isn't recognized as code. Named fonts
+  (Helvetica, Menlo, Courier…) are read correctly. Check with real PDFs in the milestone-3 benchmark.
 - **Math in PDFs** may extract badly. Decide later with the whiteboard team whether to also accept
   Markdown/LaTeX source.
 - **Neural Engine:** the int32 inputs keep the model on the GPU (Core AI warns
