@@ -1,5 +1,5 @@
 /// One line of extracted text with the font facts section detection needs.
-struct TextLine: Sendable, Hashable {
+struct TextLine: Sendable, Hashable, Codable {
     var text: String
     /// 1-based page number.
     var page: Int
@@ -19,7 +19,7 @@ struct TextLine: Sendable, Hashable {
 }
 
 /// One table-of-contents entry from a PDF outline.
-struct OutlineEntry: Sendable, Hashable {
+struct OutlineEntry: Sendable, Hashable, Codable {
     var title: String
     /// 1-based page number.
     var page: Int

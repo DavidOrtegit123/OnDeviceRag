@@ -1,16 +1,23 @@
 import Foundation
 import PDFKit
 
-public struct IngestSettings: Sendable, Hashable {
+public struct IngestSettings: Sendable, Hashable, Codable {
     public var chunkLength = 400
     public var sectionWindowLength = 1500
     public init() {}
+}
+
+/// What a document was built from — kept so it can be re-chunked later without the original file.
+enum DocumentSource: Sendable, Hashable, Codable {
+    case pdf(lines: [TextLine], outline: [OutlineEntry], pageCount: Int, pagesWithoutText: [Int])
+    case text(String)
 }
 
 public struct IngestedDocument: Sendable {
     public let info: DocumentInfo
     public let sections: [Section]
     public let chunks: [Chunk]
+    let source: DocumentSource
 }
 
 public enum IngestError: Error, Equatable {
@@ -48,22 +55,41 @@ public enum DocumentIngestor {
             sections[sections.count - 1].lines.append(TextLine(raw, isMonospaced: inCode))
         }
         return assemble(sections: sections, source: .provided, title: title, id: id, pageCount: 1,
-                        pagesWithoutText: [], mathHeavyPages: [], settings: settings)
+                        pagesWithoutText: [], mathHeavyPages: [], settings: settings, documentSource: .text(text))
     }
 
     static func ingest(pdf document: PDFDocument, title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
         let extracted = PDFTextExtractor.lines(from: document)
-        let detected = SectionDetector.detect(lines: extracted.lines, outline: PDFTextExtractor.outline(of: document),
-                                              documentTitle: title, windowLength: settings.sectionWindowLength)
+        return ingest(lines: extracted.lines, outline: PDFTextExtractor.outline(of: document), pageCount: document.pageCount,
+                      pagesWithoutText: extracted.pagesWithoutText, title: title, id: id, settings: settings)
+    }
+
+    /// Lines → sections → chunks; shared by fresh PDFs and stored PDF sources.
+    static func ingest(lines: [TextLine], outline: [OutlineEntry], pageCount: Int, pagesWithoutText: [Int],
+                       title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
+        let detected = SectionDetector.detect(lines: lines, outline: outline, documentTitle: title,
+                                              windowLength: settings.sectionWindowLength)
         return assemble(sections: detected.sections, source: detected.source, title: title, id: id,
-                        pageCount: document.pageCount, pagesWithoutText: extracted.pagesWithoutText,
-                        mathHeavyPages: mathHeavyPages(extracted.lines), settings: settings)
+                        pageCount: pageCount, pagesWithoutText: pagesWithoutText,
+                        mathHeavyPages: mathHeavyPages(lines), settings: settings,
+                        documentSource: .pdf(lines: lines, outline: outline, pageCount: pageCount, pagesWithoutText: pagesWithoutText))
+    }
+
+    /// Rebuilds sections and chunks from a stored source (e.g. after chunk settings changed).
+    static func reingest(_ source: DocumentSource, title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
+        switch source {
+        case let .pdf(lines, outline, pageCount, pagesWithoutText):
+            ingest(lines: lines, outline: outline, pageCount: pageCount, pagesWithoutText: pagesWithoutText,
+                   title: title, id: id, settings: settings)
+        case let .text(text):
+            ingestText(text, title: title, id: id, settings: settings)
+        }
     }
 
     /// Sections without any chunk are dropped, so `Section.index` is always its position in `sections`.
     private static func assemble(sections detected: [DetectedSection], source: SectionSource, title: String, id: DocumentID,
                                  pageCount: Int, pagesWithoutText: [Int], mathHeavyPages: [Int],
-                                 settings: IngestSettings) -> IngestedDocument {
+                                 settings: IngestSettings, documentSource: DocumentSource) -> IngestedDocument {
         var sections: [Section] = []
         var chunks: [Chunk] = []
         for candidate in detected {
@@ -75,7 +101,7 @@ public enum DocumentIngestor {
         let info = DocumentInfo(id: id, title: title, pageCount: pageCount, sectionCount: sections.count,
                                 chunkCount: chunks.count, sectionSource: source,
                                 pagesWithoutText: pagesWithoutText, mathHeavyPages: mathHeavyPages)
-        return IngestedDocument(info: info, sections: sections, chunks: chunks)
+        return IngestedDocument(info: info, sections: sections, chunks: chunks, source: documentSource)
     }
 
     private static func mathHeavyPages(_ lines: [TextLine]) -> [Int] {
