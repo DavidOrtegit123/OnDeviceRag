@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: draft for review (2026-10-22). Author: David Ortega, with AI assistance._
+_Status: reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -75,11 +75,14 @@ question (+ optional history) ──► Retriever ◄─────────
 
 ```swift
 public actor RAGEngine {
-    public init(storageDirectory: URL, configuration: RAGConfiguration = .default) async throws
+    // Milestone 1: in memory. `storageDirectory` and `addPrebuiltIndex(at:)` arrive with
+    // persistence in milestone 2.
+    public init(configuration: RAGConfiguration)
 
     // Documents
     public func addDocument(pdfAt url: URL, title: String? = nil) async throws -> DocumentInfo
-    public func addPrebuiltIndex(at url: URL) async throws          // documents shipped with the app
+    public func addDocument(_ document: IngestedDocument) async throws -> DocumentInfo  // e.g. from DocumentIngestor.ingestText
+    public func addPrebuiltIndex(at url: URL) async throws          // milestone 2: documents shipped with the app
     public func removeDocument(id: DocumentID) async throws
     public var documents: [DocumentInfo] { get }
 
@@ -113,7 +116,10 @@ reranker (`nil` = off). `history` is **optional and empty by default** — the r
 ## 5. Ingest (PDF only)
 
 1. **Page text:** `PDFPage.attributedString` (keeps fonts). If a page yields < 50 characters
-   (scanned page), render it and run Vision `RecognizeDocumentsRequest` (paragraphs, lists, tables).
+   (scanned page), render it and run Vision `RecognizeDocumentsRequest` (paragraphs, lists, tables)
+   — **milestone 2**; milestone 1 lists these pages in `DocumentInfo.pagesWithoutText`.
+   Plain text is also accepted (`DocumentIngestor.ingestText`: sections at `## ` lines, code inside
+   ``` fences) — for apps whose sources are text, and for tests.
 2. **Sections**, first that applies: the PDF outline (`PDFDocument.outlineRoot`); else headings
    detected from font size (≥ 1.2 × median body size) or bold short lines (< 100 characters);
    else ~1,500-character windows.
@@ -149,10 +155,12 @@ reranker (`nil` = off). `history` is **optional and empty by default** — the r
   and the user waits for nothing on first launch.
 
 **Retriever:**
-- Query text = the question, or, when `history` is given, the last ≤ 2 history messages + the question
-  (question always kept whole; history trimmed to fit 512 tokens).
-- Dense ranking (cosine) and BM25 ranking (the research app's `BM25Index` logic, moved into the
-  package: k1 1.2, b 0.75, tokens `[a-z0-9_]+`), fused with RRF (k = 60) → top 20 candidates.
+- Query text = the question, or, when `history` is given, the question followed by the last ≤ 2
+  history messages, most recent first — so the embedder's 512-token truncation only ever cuts history,
+  never the question.
+- Dense ranking (cosine) and BM25 ranking (the research app's `BM25Index` logic, **copied** into the
+  package — the app's file stays unchanged because batch Stages 2/3 depend on it: k1 1.2, b 0.75,
+  tokens `[a-z0-9_]+`), fused with RRF (k = 60) → top 20 candidates.
 
 **Reranker (optional, off by default):**
 - `FoundationModelsReranker`: one `LanguageModelSession` call with the question and the top 10
@@ -236,7 +244,9 @@ results are not affected.
 
 ## 11. Milestones
 
-1. **Core package:** Ingest, Embedder, Index (in memory), Retriever, Context packer + unit tests (Mac).
+1. **Core package:** Ingest, Embedder, Index (in memory), Retriever, Context packer, `Reranker`
+   protocol (the Foundation Models implementation comes with the benchmark in milestone 3) + unit
+   tests (Mac). OCR for scanned pages moves to milestone 2. Plan: `Docs/milestone-1-plan.md`.
 2. **Persistence and shipping:** on-disk index, `rag-index` CLI, prebuilt indexes; integrate into this
    app's normal chat (replacing `KnowledgeRetriever`'s internals without changing its call sites —
    Architecture Rule #4). Batch oracle mode untouched.
