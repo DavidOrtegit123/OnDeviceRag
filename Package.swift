@@ -13,7 +13,8 @@ let package = Package(
     targets: [
         .target(
             name: "OnDeviceRAG",
-            dependencies: [.product(name: "Tokenizers", package: "swift-transformers")]
+            dependencies: [.product(name: "Tokenizers", package: "swift-transformers")],
+            resources: [.copy("Resources/bge-small-en-v1.5")]
         ),
         .testTarget(
             name: "OnDeviceRAGTests",

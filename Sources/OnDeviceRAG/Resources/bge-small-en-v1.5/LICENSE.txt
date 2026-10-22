@@ -1,0 +1,1 @@
+bge-small-en-v1.5 tokenizer files (c) BAAI, MIT License. https://huggingface.co/BAAI/bge-small-en-v1.5
