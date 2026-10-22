@@ -2009,7 +2009,7 @@ enum ContextPacker {
             if growAfter && !blockedAfter {
                 candidate = range.upperBound + 1 < chunks.count ? range.lowerBound...(range.upperBound + 1) : nil
                 if candidate == nil { blockedAfter = true }
-            } else if !blockedBefore {
+            } else if !growAfter && !blockedBefore {  // (fixed during implementation: without `!growAfter`, a failed backward step set the wrong flag and looped forever)
                 candidate = range.lowerBound > 0 ? (range.lowerBound - 1)...range.upperBound : nil
                 if candidate == nil { blockedBefore = true }
             } else {
