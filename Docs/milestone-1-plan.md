@@ -480,12 +480,13 @@ struct ChunkerTests {
     }
 
     @Test func packsWholeSentencesUpToTheLimit() {
-        let sentence = String(repeating: "word ", count: 15).trimmingCharacters(in: .whitespaces) + "." // 74 chars
-        let text = Array(repeating: sentence, count: 8).joined(separator: " ")
-        let result = build([TextLine(text)], limit: 200)
+        // Real sentences (capitalized): NLTokenizer doesn't split "word. word".
+        let sentences = (1...8).map { "Rule \($0) says the encoder writes every value as plain text with a fixed tag." }
+        #expect(sentences.allSatisfy { (67...99).contains($0.count) }) // 2 fit in 200 characters, 3 don't
+        let result = build([TextLine(sentences.joined(separator: " "))], limit: 200)
         #expect(result.chunks.allSatisfy { $0.text.count <= 200 })
         #expect(result.chunks.allSatisfy { $0.text.hasSuffix(".") })
-        #expect(result.chunks.count == 4) // 2 sentences (75 + 1 + 75 = 151 chars) per chunk
+        #expect(result.chunks.count == 4)
     }
 
     @Test func cutsAnOverlongSentenceAtASpace() {
