@@ -35,7 +35,7 @@ struct EngineTests {
         #expect(context.text.hasPrefix("## Lists (ZORP, p. 1)\nLists are encoded as l<items>e."))
         #expect(context.tokenCount <= 2000)
 
-        await engine.removeDocument(id: "zorp")
+        try await engine.removeDocument(id: "zorp")
         let remaining = try await engine.search("lists")
         #expect(remaining.allSatisfy { $0.chunk.documentID == "cache" })
     }

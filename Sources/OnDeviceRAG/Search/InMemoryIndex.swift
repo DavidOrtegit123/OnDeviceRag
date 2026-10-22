@@ -46,6 +46,13 @@ struct InMemoryIndex: Sendable {
         documents.first { $0.info.id == id }
     }
 
+    /// The stored vectors of one document's chunks, in chunk order.
+    func vectors(of id: DocumentID) -> [[Float]] {
+        chunks.indices.filter { chunks[$0].documentID == id }.map { position in
+            Array(vectors[(position * dimension)..<((position + 1) * dimension)])
+        }
+    }
+
     /// Chunk indices by cosine similarity (vectors are normalized, so a dot product), best first;
     /// ties go to the earlier chunk.
     func denseOrder(for query: [Float]) -> [Int] {
