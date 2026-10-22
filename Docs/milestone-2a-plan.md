@@ -250,8 +250,12 @@ struct PersistenceTests {
                                     settings: IngestSettings(), addedAt: Date())
         let decoded = try #require(stored.decodedVectors())
         #expect(stored.vectors.count == 2 * 64 * 2)
+        // Cosine, not a raw dot product: Float16 rounding can shorten a vector slightly (~0.03%)
+        // without changing its direction. (Real bge vectors are Float16 already, so lose nothing.)
         for (a, b) in zip(original, decoded) {
-            #expect(zip(a, b).reduce(Float(0)) { $0 + $1.0 * $1.1 } >= 0.9999)
+            let dot = zip(a, b).reduce(Float(0)) { $0 + $1.0 * $1.1 }
+            let normB = b.reduce(Float(0)) { $0 + $1 * $1 }.squareRoot()
+            #expect(dot / normB >= 0.9999)
         }
     }
 
