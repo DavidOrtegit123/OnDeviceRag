@@ -40,7 +40,8 @@ public actor RAGEngine {
     public var documents: [DocumentInfo] { index.documents.map(\.info) }
 
     public func addDocument(pdfAt url: URL, title: String? = nil) async throws -> DocumentInfo {
-        try await addDocument(DocumentIngestor.ingestPDF(at: url, title: title, settings: configuration.ingest))
+        try await addDocument(DocumentIngestor.ingestPDF(at: url, title: title, settings: configuration.ingest,
+                                                         ocr: configuration.ocrScannedPages))
     }
 
     /// Adds (or replaces, same ID) a document; embeds its chunks and, with storage, saves it.

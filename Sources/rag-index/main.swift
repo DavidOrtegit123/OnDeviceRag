@@ -70,6 +70,7 @@ case "build":
         }
         var line = "\(id): \(info.sectionCount) sections (\(info.sectionSource.rawValue)), \(info.chunkCount) chunks, \(info.pageCount) pages, \(clock.now - start)"
         if !info.pagesWithoutText.isEmpty { line += ", pages without text: \(info.pagesWithoutText)" }
+        if !info.ocrPages.isEmpty { line += ", OCR pages: \(info.ocrPages)" }
         if !info.mathHeavyPages.isEmpty { line += ", math-heavy pages: \(info.mathHeavyPages)" }
         print(line)
     }

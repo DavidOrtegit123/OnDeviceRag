@@ -17,12 +17,12 @@ struct PDFIngestTests {
         #expect(!result.lines[1].isMonospaced)
     }
 
-    @Test func headingsBecomeSectionsAndCodeStaysOneChunk() {
+    @Test func headingsBecomeSectionsAndCodeStaysOneChunk() async throws {
         let pdf = FixturePDF.make(pages: [
             [.heading("Integers"), .body("Integers are written as i<n>."), .body("Negative numbers keep their sign.")],
             [.heading("Lists"), .body("Lists are written as l<items>e."), .code("encode([1, 2])"), .code("# -> li1ei2ee")],
         ])
-        let document = DocumentIngestor.ingest(pdf: pdf, title: "ZORP", id: "z", settings: IngestSettings())
+        let document = try await DocumentIngestor.ingest(pdf: pdf, title: "ZORP", id: "z", settings: IngestSettings())
         #expect(document.info.sectionSource == .headings)
         #expect(document.sections.map(\.title) == ["Integers", "Lists"])
         #expect(document.sections.last?.pages == PageRange(first: 2, last: 2))
@@ -33,27 +33,27 @@ struct PDFIngestTests {
         #expect(document.info.chunkCount == document.chunks.count)
     }
 
-    @Test func outlineWinsOverHeadings() {
+    @Test func outlineWinsOverHeadings() async throws {
         let pdf = FixturePDF.make(pages: [[.heading("Alpha"), .body("First body sentence here.")],
                                           [.heading("Beta"), .body("Second body sentence here.")]],
                                   outline: [(title: "Alpha", page: 1), (title: "Beta", page: 2)])
-        let document = DocumentIngestor.ingest(pdf: pdf, title: "Doc", id: "d", settings: IngestSettings())
+        let document = try await DocumentIngestor.ingest(pdf: pdf, title: "Doc", id: "d", settings: IngestSettings())
         #expect(document.info.sectionSource == .outline)
         #expect(document.sections.map(\.title) == ["Alpha", "Beta"])
         #expect(document.chunks.map(\.text) == ["First body sentence here.", "Second body sentence here."])
     }
 
-    @Test func emptyPageIsReportedAsWithoutText() {
+    @Test func emptyPageIsReportedAsWithoutText() async throws {
         // Page 1 needs ≥ 50 non-whitespace characters to count as a text page.
         let pdf = FixturePDF.make(pages: [[.body("Some real text on the first page, clearly long enough to count as text.")], []])
-        let document = DocumentIngestor.ingest(pdf: pdf, title: "Doc", id: "d", settings: IngestSettings())
+        let document = try await DocumentIngestor.ingest(pdf: pdf, title: "Doc", id: "d", settings: IngestSettings())
         #expect(document.info.pagesWithoutText == [2])
     }
 
-    @Test func mathHeavyPageIsFlagged() {
+    @Test func mathHeavyPageIsFlagged() async throws {
         let pdf = FixturePDF.make(pages: [[.body("x² + 2x − 3 = 0 ⇒ x = −3 ∨ x = 1, √9 = 3, ∑ k ≤ n")],
                                           [.body("A page of plain words without any formulas at all here.")]])
-        let document = DocumentIngestor.ingest(pdf: pdf, title: "Doc", id: "d", settings: IngestSettings())
+        let document = try await DocumentIngestor.ingest(pdf: pdf, title: "Doc", id: "d", settings: IngestSettings())
         #expect(document.info.mathHeavyPages == [1])
     }
 
@@ -76,9 +76,9 @@ struct PDFIngestTests {
         #expect(document.chunks.filter(\.isCode).map(\.text) == ["encode([1])"])
     }
 
-    @Test func unreadableFileThrows() {
+    @Test func unreadableFileThrows() async {
         let url = URL(fileURLWithPath: "/nonexistent/file.pdf")
-        #expect(throws: IngestError.unreadablePDF(url)) { try DocumentIngestor.ingestPDF(at: url) }
+        await #expect(throws: IngestError.unreadablePDF(url)) { try await DocumentIngestor.ingestPDF(at: url) }
     }
 }
 #endif

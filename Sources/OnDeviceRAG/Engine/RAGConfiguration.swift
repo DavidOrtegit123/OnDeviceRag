@@ -12,6 +12,9 @@ public struct RAGConfiguration: Sendable {
     public var reranker: (any Reranker)? = nil
     public var rerankCount = 10
     public var ingest = IngestSettings()
+    /// Read PDF pages without a text layer (scans) with Vision OCR (~0.2 s per page on a Mac).
+    /// Not part of `IngestSettings`: re-chunking a stored document can't re-run OCR.
+    public var ocrScannedPages = true
     public var retrieval = RetrievalSettings()
     public var bm25K1 = 1.2
     public var bm25B = 0.75

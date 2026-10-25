@@ -29,12 +29,13 @@ public enum DocumentIngestor {
     static let mathSymbols: Set<Character> = Set("=+−×÷^√∑∏∫≤≥≠≈∞πθλμσΔ∂±⇒⇔∨∧∈∉⊂⊆∪∩²³")
     static let mathHeavyShare = 0.05
 
+    /// Reads a PDF; pages without a text layer (scans) are read with OCR unless `ocr` is false.
     public static func ingestPDF(at url: URL, title: String? = nil, id: DocumentID = UUID().uuidString,
-                                 settings: IngestSettings = IngestSettings()) throws -> IngestedDocument {
+                                 settings: IngestSettings = IngestSettings(), ocr: Bool = true) async throws -> IngestedDocument {
         guard let document = PDFDocument(url: url) else { throw IngestError.unreadablePDF(url) }
         let pdfTitle = document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
         let fallbackTitle = pdfTitle.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingPathExtension().lastPathComponent
-        return ingest(pdf: document, title: title ?? fallbackTitle, id: id, settings: settings)
+        return try await ingest(pdf: document, title: title ?? fallbackTitle, id: id, settings: settings, ocr: ocr)
     }
 
     /// Plain text: `## ` lines start sections (text before the first one is titled `title`);
@@ -58,8 +59,12 @@ public enum DocumentIngestor {
                         pagesWithoutText: [], ocrPages: [], mathHeavyPages: [], settings: settings, documentSource: .text(text))
     }
 
-    static func ingest(pdf document: PDFDocument, title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
-        let extracted = PDFTextExtractor.lines(from: document)
+    static func ingest(pdf document: PDFDocument, title: String, id: DocumentID, settings: IngestSettings,
+                       ocr: Bool = true) async throws -> IngestedDocument {
+        var extracted = PDFTextExtractor.lines(from: document)
+        if ocr, !extracted.pagesWithoutText.isEmpty {
+            extracted = try await PageOCR.fill(extracted, in: document)
+        }
         return ingest(lines: extracted.lines, outline: PDFTextExtractor.outline(of: document), pageCount: document.pageCount,
                       pagesWithoutText: extracted.pagesWithoutText, title: title, id: id, settings: settings)
     }

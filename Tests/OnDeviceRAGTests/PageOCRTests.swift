@@ -45,6 +45,24 @@ struct PageOCRTests {
         #expect(texts.contains { $0.contains("Nested lists are allowed") })
     }
 
+    @Test func shortTypedPageKeepsItsTextLayer() async throws {
+        // < 50 characters, so it counts as "without text", but OCR finds nothing more than the text layer.
+        let pdf = FixturePDF.make(pages: [[.heading("Lists"), .body("Lists are written as items.")]])
+        let extracted = PDFTextExtractor.lines(from: pdf)
+        #expect(extracted.pagesWithoutText == [1])
+        let filled = try await PageOCR.fill(extracted, in: pdf)
+        #expect(filled.lines == extracted.lines)
+        #expect(filled.lines.first?.isBold == true)
+    }
+
+    @Test func shortScannedPageKeepsItsHeading() async throws {
+        let pdf = FixturePDF.makeScanned(pages: [[.heading("Chapter Two Lists"), .body("Lists are encoded as items between markers.")]])
+        let lines = try await PageOCR.lines(of: try #require(pdf.page(at: 0)), pageNumber: 1).filter { !$0.isBlank }
+        #expect(lines.count == 2)
+        let heading = try #require(lines.first { $0.text.contains("Chapter") })
+        #expect(heading.fontSize >= 1.3 * PageOCR.bodyFontSize)
+    }
+
     @Test func fillReplacesOnlyEmptyPagesAndKeepsPageOrder() async throws {
         // Page 1 typed, page 2 scanned, page 3 blank scan.
         let typed = FixturePDF.make(pages: [[.heading("Typed"), .body("This page has a real text layer with enough characters.")]])

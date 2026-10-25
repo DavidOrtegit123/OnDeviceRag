@@ -16,16 +16,23 @@ enum PageOCR {
     /// Font size given to OCR body lines; only relative sizes matter to section detection.
     static let bodyFontSize = 11.0
 
-    /// Replaces the lines of every page without usable text by its OCR lines, and recomputes which
-    /// pages still have none. A page whose recognition fails or finds nothing keeps what it had.
+    /// OCR replaces a page's text layer only when it finds more than this many times its characters:
+    /// a short typed page (a chapter title, a slide) reads about the same and keeps its font facts,
+    /// while a scan (no text layer, or just a stamped page number) is replaced.
+    static let replacementFactor = 2
+
+    /// Replaces the lines of pages without usable text by their OCR lines when OCR finds clearly
+    /// more text, and recomputes which pages still have none. A page whose recognition fails keeps
+    /// what it had.
     static func fill(_ extracted: (lines: [TextLine], pagesWithoutText: [Int]),
                      in document: PDFDocument) async throws -> (lines: [TextLine], pagesWithoutText: [Int]) {
         var byPage = Dictionary(grouping: extracted.lines, by: \.page)
         for pageNumber in extracted.pagesWithoutText {
             try Task.checkCancellation()
+            let layerCharacters = PDFTextExtractor.visibleCharacterCount(byPage[pageNumber] ?? [])
             guard let page = document.page(at: pageNumber - 1),
                   let recognized = try? await lines(of: page, pageNumber: pageNumber),
-                  recognized.contains(where: { !$0.isBlank }) else { continue }
+                  PDFTextExtractor.visibleCharacterCount(recognized) > replacementFactor * layerCharacters else { continue }
             byPage[pageNumber] = recognized
         }
         let lines = (0..<document.pageCount).flatMap { byPage[$0 + 1] ?? [] }
@@ -46,7 +53,8 @@ enum PageOCR {
             let document = observation.document
             let title = document.title?.transcript.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let heights = document.paragraphs.flatMap(\.lines).map { Double($0.boundingBox.height) }.sorted()
-            let median = heights.isEmpty ? 0 : heights[heights.count / 2]
+            // Lower median: on a two-line page (heading + one line) the body line is the reference.
+            let median = heights.isEmpty ? 0 : heights[(heights.count - 1) / 2]
             for paragraph in document.paragraphs {
                 if !result.isEmpty {
                     result.append(TextLine("", page: pageNumber, isOCR: true))

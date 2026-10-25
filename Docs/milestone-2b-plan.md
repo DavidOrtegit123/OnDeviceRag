@@ -16,7 +16,7 @@
 
 - Everything from milestones 1 and 2a still applies: iOS 27 / macOS 27, tools 6.4, Swift 6 mode, **no network**, only dependency `swift-transformers` 1.3.4, the research app (`Prototype On-Device/`) and `evaluation/` are **not** modified, model-gated tests skip without the model, tests run with `swift test --package-path Packages/OnDeviceRAG`.
 - On-disk format stays **version 1**: files written by 2a must still load, and new fields must decode with defaults when absent (no rebuild, no `loadIssues` entry).
-- A page goes to OCR only if its text layer has < `PDFTextExtractor.minimumCharactersForTextPage` (50) visible characters. Pages with a usable text layer are never OCR'd.
+- A page goes to OCR only if its text layer has < `PDFTextExtractor.minimumCharactersForTextPage` (50) visible characters, and the OCR result replaces the text layer only if it has **more than twice** the layer's visible characters (`PageOCR.replacementFactor`). *(Amended during Task 3, 2026-10-25: without the second rule, short typed pages — e.g. a heading plus one line, ~32 characters — were OCR'd and lost their font facts; three existing engine tests caught it.)*
 - An OCR failure on one page never fails the document: that page keeps what it had and stays in `pagesWithoutText`. Only task cancellation throws.
 - OCR runs one page at a time (memory) and checks for cancellation between pages.
 
@@ -324,6 +324,24 @@ struct PageOCRTests {
         #expect(texts.contains { $0.contains("Nested lists are allowed") })
     }
 
+    @Test func shortTypedPageKeepsItsTextLayer() async throws {
+        // < 50 characters, so it counts as "without text", but OCR finds nothing more than the text layer.
+        let pdf = FixturePDF.make(pages: [[.heading("Lists"), .body("Lists are written as items.")]])
+        let extracted = PDFTextExtractor.lines(from: pdf)
+        #expect(extracted.pagesWithoutText == [1])
+        let filled = try await PageOCR.fill(extracted, in: pdf)
+        #expect(filled.lines == extracted.lines)
+        #expect(filled.lines.first?.isBold == true)
+    }
+
+    @Test func shortScannedPageKeepsItsHeading() async throws {
+        let pdf = FixturePDF.makeScanned(pages: [[.heading("Chapter Two Lists"), .body("Lists are encoded as items between markers.")]])
+        let lines = try await PageOCR.lines(of: try #require(pdf.page(at: 0)), pageNumber: 1).filter { !$0.isBlank }
+        #expect(lines.count == 2)
+        let heading = try #require(lines.first { $0.text.contains("Chapter") })
+        #expect(heading.fontSize >= 1.3 * PageOCR.bodyFontSize)
+    }
+
     @Test func fillReplacesOnlyEmptyPagesAndKeepsPageOrder() async throws {
         // Page 1 typed, page 2 scanned, page 3 blank scan.
         let typed = FixturePDF.make(pages: [[.heading("Typed"), .body("This page has a real text layer with enough characters.")]])
@@ -379,16 +397,23 @@ enum PageOCR {
     /// Font size given to OCR body lines; only relative sizes matter to section detection.
     static let bodyFontSize = 11.0
 
-    /// Replaces the lines of every page without usable text by its OCR lines, and recomputes which
-    /// pages still have none. A page whose recognition fails or finds nothing keeps what it had.
+    /// OCR replaces a page's text layer only when it finds more than this many times its characters:
+    /// a short typed page (a chapter title, a slide) reads about the same and keeps its font facts,
+    /// while a scan (no text layer, or just a stamped page number) is replaced.
+    static let replacementFactor = 2
+
+    /// Replaces the lines of pages without usable text by their OCR lines when OCR finds clearly
+    /// more text, and recomputes which pages still have none. A page whose recognition fails keeps
+    /// what it had.
     static func fill(_ extracted: (lines: [TextLine], pagesWithoutText: [Int]),
                      in document: PDFDocument) async throws -> (lines: [TextLine], pagesWithoutText: [Int]) {
         var byPage = Dictionary(grouping: extracted.lines, by: \.page)
         for pageNumber in extracted.pagesWithoutText {
             try Task.checkCancellation()
+            let layerCharacters = PDFTextExtractor.visibleCharacterCount(byPage[pageNumber] ?? [])
             guard let page = document.page(at: pageNumber - 1),
                   let recognized = try? await lines(of: page, pageNumber: pageNumber),
-                  recognized.contains(where: { !$0.isBlank }) else { continue }
+                  PDFTextExtractor.visibleCharacterCount(recognized) > replacementFactor * layerCharacters else { continue }
             byPage[pageNumber] = recognized
         }
         let lines = (0..<document.pageCount).flatMap { byPage[$0 + 1] ?? [] }
@@ -409,7 +434,8 @@ enum PageOCR {
             let document = observation.document
             let title = document.title?.transcript.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let heights = document.paragraphs.flatMap(\.lines).map { Double($0.boundingBox.height) }.sorted()
-            let median = heights.isEmpty ? 0 : heights[heights.count / 2]
+            // Lower median: on a two-line page (heading + one line) the body line is the reference.
+            let median = heights.isEmpty ? 0 : heights[(heights.count - 1) / 2]
             for paragraph in document.paragraphs {
                 if !result.isEmpty {
                     result.append(TextLine("", page: pageNumber, isOCR: true))
@@ -479,15 +505,17 @@ import PDFKit
 import Testing
 @testable import OnDeviceRAG
 
-private let zorpScan: [[FixturePDF.Line]] = [[
-    FixturePDF.Line(text: "Encoding Lists", font: NSFont(name: "Helvetica-Bold", size: 20)!),
-    .body("Lists are encoded as items between markers."),
-    .body("Nested lists are allowed in this format."),
-    .body("Every item keeps its original order."),
-    FixturePDF.Line(text: "Encoding Numbers", font: NSFont(name: "Helvetica-Bold", size: 20)!),
-    .body("Numbers are written with a leading marker."),
-    .body("Negative numbers keep their minus sign."),
-]]
+private func zorpScan() -> [[FixturePDF.Line]] {
+    [[
+        FixturePDF.Line(text: "Encoding Lists", font: NSFont(name: "Helvetica-Bold", size: 20)!),
+        .body("Lists are encoded as items between markers."),
+        .body("Nested lists are allowed in this format."),
+        .body("Every item keeps its original order."),
+        FixturePDF.Line(text: "Encoding Numbers", font: NSFont(name: "Helvetica-Bold", size: 20)!),
+        .body("Numbers are written with a leading marker."),
+        .body("Negative numbers keep their minus sign."),
+    ]]
+}
 
 private func writeTemporary(_ pdf: PDFDocument) throws -> URL {
     let url = FileManager.default.temporaryDirectory.appending(path: "scan-\(UUID().uuidString).pdf")
@@ -497,7 +525,7 @@ private func writeTemporary(_ pdf: PDFDocument) throws -> URL {
 
 struct ScannedIngestTests {
     @Test func scannedPDFBecomesSectionsAndChunks() async throws {
-        let document = try await DocumentIngestor.ingest(pdf: FixturePDF.makeScanned(pages: zorpScan), title: "ZORP", id: "z",
+        let document = try await DocumentIngestor.ingest(pdf: FixturePDF.makeScanned(pages: zorpScan()), title: "ZORP", id: "z",
                                                          settings: IngestSettings())
         #expect(document.info.ocrPages == [1])
         #expect(document.info.pagesWithoutText == [])
@@ -507,7 +535,7 @@ struct ScannedIngestTests {
     }
 
     @Test func ocrOffLeavesScannedPagesEmpty() async throws {
-        let document = try await DocumentIngestor.ingest(pdf: FixturePDF.makeScanned(pages: zorpScan), title: "ZORP", id: "z",
+        let document = try await DocumentIngestor.ingest(pdf: FixturePDF.makeScanned(pages: zorpScan()), title: "ZORP", id: "z",
                                                          settings: IngestSettings(), ocr: false)
         #expect(document.info.ocrPages == [])
         #expect(document.info.pagesWithoutText == [1])
@@ -515,7 +543,7 @@ struct ScannedIngestTests {
     }
 
     @Test func reingestKeepsOCRTextWithoutRunningOCRAgain() async throws {
-        let original = try await DocumentIngestor.ingest(pdf: FixturePDF.makeScanned(pages: zorpScan), title: "ZORP", id: "z",
+        let original = try await DocumentIngestor.ingest(pdf: FixturePDF.makeScanned(pages: zorpScan()), title: "ZORP", id: "z",
                                                          settings: IngestSettings())
         // reingest is synchronous and has no PDF: it can only use the stored OCR lines.
         let again = DocumentIngestor.reingest(original.source, title: "ZORP", id: "z", settings: IngestSettings())
@@ -524,7 +552,7 @@ struct ScannedIngestTests {
     }
 
     @Test func engineFindsTextOnAScannedPage() async throws {
-        let url = try writeTemporary(FixturePDF.makeScanned(pages: zorpScan))
+        let url = try writeTemporary(FixturePDF.makeScanned(pages: zorpScan()))
         defer { try? FileManager.default.removeItem(at: url) }
         var configuration = RAGConfiguration(embedder: FakeEmbedder())
         configuration.tokenCounter = EstimatingTokenCounter()
@@ -536,7 +564,7 @@ struct ScannedIngestTests {
     }
 
     @Test func engineRespectsOCRSwitch() async throws {
-        let url = try writeTemporary(FixturePDF.makeScanned(pages: zorpScan))
+        let url = try writeTemporary(FixturePDF.makeScanned(pages: zorpScan()))
         defer { try? FileManager.default.removeItem(at: url) }
         var configuration = RAGConfiguration(embedder: FakeEmbedder())
         configuration.ocrScannedPages = false
@@ -614,7 +642,8 @@ struct ScannedIngestTests {
         if !info.ocrPages.isEmpty { line += ", OCR pages: \(info.ocrPages)" }
 ```
 
-- [ ] **Step 6: Run all tests — expect PASS** (previous count + 5 new), then `swift build --package-path Packages/OnDeviceRAG` (CLI compiles).
+- [ ] **Step 6: Run all tests — expect PASS** (previous count + 5 new), then
+  *(As executed: this step first failed 3 existing typed-PDF engine tests — see the amended Global Constraint; fixed in `PageOCR` with `replacementFactor` and the lower median, plus the two tests above, then 89/89 passed.)* Then `swift build --package-path Packages/OnDeviceRAG` (CLI compiles).
 - [ ] **Step 7: Mutation checks** (one at a time, restore after each):
   1. In `ingest(pdf:…)`, ignore `ocr` (`if !extracted.pagesWithoutText.isEmpty`) → `ocrOffLeavesScannedPagesEmpty` and `engineRespectsOCRSwitch` fail.
   2. In `RAGEngine.addDocument(pdfAt:)`, drop `ocr: configuration.ocrScannedPages` → `engineRespectsOCRSwitch` fails.

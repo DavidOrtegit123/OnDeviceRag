@@ -30,10 +30,10 @@ struct SourceTests {
     }
 
     #if os(macOS)
-    @Test func pdfSourceReingestsIdenticallyWithoutTheFile() {
+    @Test func pdfSourceReingestsIdenticallyWithoutTheFile() async throws {
         let pdf = FixturePDF.make(pages: [[.heading("Integers"), .body("Integers are written as i<n>.")],
                                           [.heading("Lists"), .body("Lists are written as l<items>e."), .code("encode([1])")]])
-        let original = DocumentIngestor.ingest(pdf: pdf, title: "ZORP", id: "z", settings: IngestSettings())
+        let original = try await DocumentIngestor.ingest(pdf: pdf, title: "ZORP", id: "z", settings: IngestSettings())
         guard case .pdf = original.source else {
             Issue.record("expected a PDF source")
             return
