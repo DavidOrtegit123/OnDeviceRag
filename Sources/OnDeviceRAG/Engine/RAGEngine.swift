@@ -67,14 +67,17 @@ public actor RAGEngine {
         addedAt[id] = nil
     }
 
-    /// Best chunks first (hybrid dense + BM25). `history`: earlier chat messages, oldest first; optional.
-    public func search(_ question: String, history: [String] = [], limit: Int? = nil) async throws -> [RetrievedChunk] {
-        try await Retriever.retrieve(question: question, history: history, index: index, embedder: configuration.embedder,
-                                     settings: configuration.retrieval, limit: limit ?? configuration.retrieval.candidateCount)
+    /// Best chunks first (hybrid dense + BM25). `history`: earlier turns, oldest first — used only
+    /// when `configuration.history.useForSearch` is on.
+    public func search(_ question: String, history: [ChatTurn] = [], limit: Int? = nil) async throws -> [RetrievedChunk] {
+        let settings = configuration.history
+        return try await Retriever.retrieve(question: question, history: settings.useForSearch ? history : [],
+                                            searchTurns: settings.searchTurns, index: index, embedder: configuration.embedder,
+                                            settings: configuration.retrieval, limit: limit ?? configuration.retrieval.candidateCount)
     }
 
     /// Text for the prompt: whole sections (or windows) in rank order, within the token budget.
-    public func context(for question: String, history: [String] = [], tokenBudget: Int? = nil) async throws -> RAGContext {
+    public func context(for question: String, history: [ChatTurn] = [], tokenBudget: Int? = nil) async throws -> RAGContext {
         var candidates = try await search(question, history: history)
         if let reranker = configuration.reranker {
             candidates = await rerank(question, candidates, with: reranker)
