@@ -77,13 +77,23 @@ public actor RAGEngine {
     }
 
     /// Text for the prompt: whole sections (or windows) in rank order, within the token budget.
+    /// `history` (oldest first) is searched when `history.useForSearch` is on and returned, trimmed
+    /// to `history.tokenBudget`, when `history.includeInContext` is on.
     public func context(for question: String, history: [ChatTurn] = [], tokenBudget: Int? = nil) async throws -> RAGContext {
         var candidates = try await search(question, history: history)
         if let reranker = configuration.reranker {
             candidates = await rerank(question, candidates, with: reranker)
         }
-        return await ContextPacker.pack(candidates, index: index, tokenBudget: tokenBudget ?? configuration.tokenBudget,
-                                        counter: tokenCounter)
+        var context = await ContextPacker.pack(candidates, index: index, tokenBudget: tokenBudget ?? configuration.tokenBudget,
+                                               counter: tokenCounter)
+        let settings = configuration.history
+        if settings.includeInContext {
+            let window = await HistoryWindow.select(history, maximumTurns: settings.maximumTurns,
+                                                    tokenBudget: settings.tokenBudget, counter: tokenCounter)
+            context.history = window.turns
+            context.historyTokenCount = window.tokenCount
+        }
+        return context
     }
 
     /// Reorders the first `rerankCount` candidates; any error or non-reordering output keeps the original order.

@@ -121,6 +121,10 @@ public struct RAGContext: Sendable, Hashable {
     public let sections: [ContextSection]
     public let tokenCount: Int
     public let tokenCountIsEstimate: Bool
+    /// Recent turns chosen for the prompt (oldest first); empty unless `history.includeInContext`.
+    public internal(set) var history: [ChatTurn] = []
+    /// Tokens of `history` (separate from `tokenCount`, which counts the sections).
+    public internal(set) var historyTokenCount = 0
 }
 
 public struct TokenCount: Sendable, Hashable {
