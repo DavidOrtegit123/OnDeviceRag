@@ -28,13 +28,13 @@ use: Apple's Foundation Model, an open model through Core AI, MLX, llama.cpp, or
 ## Installation
 
 1. In Xcode: **File › Add Package Dependencies…**, enter `https://github.com/DavidOrtegit123/OnDeviceRag`,
-   choose "Up to Next Minor Version" from `0.1.0` (0.x releases may change the API), and add the
+   choose "Up to Next Minor Version" from `0.2.0` (0.x releases may change the API), and add the
    `OnDeviceRAG` library to your app target.
 2. Download the model and add it to your app target (drag the `.aimodel` folder into Xcode, with your
    app target ticked):
 
    ```bash
-   Tools/download_model.sh <your-app-folder>     # needs `gh auth login` while the repository is private
+   Tools/download_model.sh <your-app-folder>     # uses gh if installed, else curl; no login needed
    ```
 
    Or rebuild it yourself with `Tools/export_embedder.py` (`uv run export_embedder.py float16`).
@@ -49,10 +49,37 @@ let engine = RAGEngine(configuration: RAGConfiguration(embedder: try await BGESm
 _ = try await engine.addDocument(pdfAt: pdfURL)
 
 let question = "How do I encode a list?"
-let context = try await engine.context(for: question)   // optionally: history: [earlier messages]
+let context = try await engine.context(for: question)
 let prompt = "Reference material:\n\(context.text)\n\nQuestion: \(question)"
 ```
 
+### Conversation history (optional)
+
+```swift
+var configuration = RAGConfiguration(embedder: embedder)
+configuration.history.useForSearch = true      // follow-up questions find the right section
+configuration.history.includeInContext = true  // recent turns returned for your prompt
+let engine = RAGEngine(configuration: configuration)
+
+let history: [ChatTurn] = [.user("What is ZORP-7?"), .assistant("A serialization format…")]
+let context = try await engine.context(for: "And how are lists encoded?", history: history)
+let prompt = """
+Conversation so far:
+\(ChatTurn.format(context.history))
+
+Reference material:
+\(context.text)
+
+Question: And how are lists encoded?
+"""
+```
+
+Both switches are **off by default**: without them, passing history changes nothing. Search uses
+only the last `history.searchTurns` (2) user turns; `context.history` holds the latest turns that fit
+`history.tokenBudget` (600 tokens, at most `history.maximumTurns` = 6, oldest dropped first). The
+package doesn't store conversations — your app keeps the chat log and passes it in.
+
+`renameDocument(id:to:)` gives a document a new title (re-chunked from its saved source).
 `context.sections` lists the sections used (title, document, pages) for citations.
 `DocumentIngestor.ingestText(_:title:)` accepts plain text (`## ` headings, ``` code fences).
 All settings live in `RAGConfiguration`; the embedder, token counter and re-ranker are protocols,
