@@ -87,6 +87,40 @@ public actor RAGEngine {
         return reordered + candidates.dropFirst(head.count)
     }
 
+    // MARK: - Prebuilt indexes
+
+    public func isPrebuilt(_ id: DocumentID) -> Bool {
+        prebuiltIDs.contains(id)
+    }
+
+    /// Writes every non-prebuilt document into one read-only index file (what `rag-index build` produces).
+    public func exportIndex(to url: URL) throws {
+        let records = index.documents
+            .filter { !prebuiltIDs.contains($0.info.id) }
+            .map { record($0, index.vectors(of: $0.info.id), addedAt[$0.info.id] ?? Date()) }
+        try DocumentStore.writeIndex(records, to: url)
+    }
+
+    /// Loads a shipped `.ragindex` file. Its documents are searchable but read-only, and are never
+    /// written anywhere — if they were built with another embedder or other chunk settings, they're
+    /// rebuilt in memory on every load (rebuild the index with `rag-index` to avoid that).
+    @discardableResult
+    public func addPrebuiltIndex(at url: URL) async throws -> [DocumentInfo] {
+        var added: [DocumentInfo] = []
+        for stored in try DocumentStore.readIndex(at: url) {
+            guard index.document(stored.info.id) == nil else {
+                loadIssues.append("\(url.lastPathComponent): skipped '\(stored.info.id)' — a document with that ID is already loaded")
+                continue
+            }
+            let prepared = try await prepare(stored)
+            index.add(prepared.document, vectors: prepared.vectors)
+            addedAt[stored.info.id] = stored.addedAt
+            prebuiltIDs.insert(stored.info.id)
+            added.append(prepared.document.info)
+        }
+        return added
+    }
+
     // MARK: - Loading
 
     private func loadStoredDocuments() async throws {
