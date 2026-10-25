@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: milestone 1 and milestone 2a (persistence, prebuilt indexes, `rag-index`) implemented and Mac-tested (2026-10-22 / 2026-10-25); 2b, 2c and milestones 3–5 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
+_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); 2c and milestones 3–5 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -119,9 +119,18 @@ reranker (`nil` = off). `history` is **optional and empty by default** — the r
 
 ## 5. Ingest (PDF only)
 
-1. **Page text:** `PDFPage.attributedString` (keeps fonts). If a page yields < 50 characters
-   (scanned page), render it and run Vision `RecognizeDocumentsRequest` (paragraphs, lists, tables)
-   — **milestone 2**; milestone 1 lists these pages in `DocumentInfo.pagesWithoutText`.
+1. **Page text:** `PDFPage.attributedString` (keeps fonts). **Scanned pages (2b, implemented):** a
+   page with < 50 visible characters is rendered at 2× (≤ 4,000 px, rotation applied) and read with
+   Vision `RecognizeDocumentsRequest`. Its paragraphs (lists arrive inside them) become `TextLine`s
+   marked `isOCR`, with a blank line between paragraphs. Sizes are snapped: a line under 1.3 × the
+   page's lower-median line height is body text (11 pt); taller lines keep their ratio (heading
+   candidates); the recognized document title is marked bold. The OCR text replaces the text layer
+   only if it has **more than twice** the layer's characters, so short typed pages (a chapter title,
+   a slide) keep their fonts. OCR lines are stored in the document's source, so re-chunking never
+   re-runs OCR. `DocumentInfo.ocrPages` lists OCR'd pages; `pagesWithoutText` lists pages still
+   under 50 characters after OCR. A failing page never fails the document; only cancellation throws.
+   Switch: `RAGConfiguration.ocrScannedPages` (default on) — not in `IngestSettings`, because a
+   settings change re-chunks from the source, which can't re-run OCR. Plan: `Docs/milestone-2b-plan.md`.
    Plain text is also accepted (`DocumentIngestor.ingestText`: sections at `## ` lines, code inside
    ``` fences) — for apps whose sources are text, and for tests.
 2. **Sections**, first that applies: the PDF outline (`PDFDocument.outlineRoot`); else headings
@@ -247,6 +256,15 @@ results are not affected.
 - **English-only embedder.** Spanish content needs a multilingual model (e.g. `multilingual-e5-small`,
   ~240 MB at float16; its 250k-token vocabulary needs a slightly different export). Test before promising.
 - **Adds ~64 MB** to an app.
+- **OCR (2b):** ~0.2 s per page on a Mac; the first OCR in a newly built or installed app took ~47 s
+  (system model preparation, seen on the Mac — iPhone unmeasured). Misreads lone letters (`l` → `I`)
+  and math spacing (`x = y + 2` → `x=y +2`) — relevant for the algebra tutor. Tables aren't handled
+  separately; whether table text arrives in `paragraphs` is unverified (check with real scans in
+  milestone 3). Tested only on synthetic scans so far; no real scanned PDF has been tried.
+- **All-monospace PDFs** (e.g. a plain-text file printed with `cupsfilter`, Monaco font) are treated
+  as one code block per page, and code is never split: a 7,000-character manual became 4 chunks of
+  500–1,950 characters (found 2026-10-25). Possible fix, as its own task: split long code blocks at
+  blank lines, or treat an all-monospace page as prose.
 - **PDFs set in Apple's system font** (e.g. exported from Pages/Notes) lose bold/monospace when read
   back: PDFKit reports the private `.SF…` font as Times New Roman (found 2026-10-22 in milestone 1).
   Headings are then detected by size only and code isn't recognized as code. Named fonts
@@ -278,7 +296,8 @@ results are not affected.
 2. **Persistence, shipping and app integration**, in three plans:
    - **2a — done (2026-10-25):** on-disk index with rebuild rules, prebuilt read-only indexes,
      `rag-index` CLI. Plan: `Docs/milestone-2a-plan.md`.
-   - **2b:** Vision OCR for scanned pages (package only).
+   - **2b — done (2026-10-25):** Vision OCR for scanned pages (package only). Plan:
+     `Docs/milestone-2b-plan.md`.
    - **2c:** integrate into this app's normal chat: newly imported PDFs keep a copy of the original
      (older imports and photos fall back to their stored text); `referenceDocument(for:)` becomes async
      and uses the package (Architecture Rule #4 updated when 2c is built). The explicit-pick (oracle)

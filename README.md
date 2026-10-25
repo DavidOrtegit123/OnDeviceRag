@@ -9,7 +9,8 @@ use: Apple's Foundation Model, an open model through Core AI, MLX, llama.cpp, or
 
 ## How it works
 
-1. **Ingest** — PDF text is read with its fonts, split into sections (the PDF's table of contents,
+1. **Ingest** — PDF text is read with its fonts (pages without a text layer — scans — are read
+   with Vision OCR), split into sections (the PDF's table of contents,
    else large/bold headings, else ~1,500-character windows), then into chunks of ≤ 400 characters
    made of whole sentences. Code blocks are never split.
 2. **Search** — every chunk is ranked two ways and the rankings are merged (Reciprocal Rank Fusion):
@@ -81,9 +82,18 @@ Xcode flattens resource folders into the app bundle.
 ## Limitations
 
 - **English only** (the embedding model). Other languages need a multilingual model.
-- **PDF and plain text only.** Scanned pages are reported (`DocumentInfo.pagesWithoutText`) but not
-  yet read (OCR is planned). Math may extract badly; pages heavy in math symbols are flagged
+- **PDF and plain text only.** Math may extract badly; pages heavy in math symbols are flagged
   (`DocumentInfo.mathHeavyPages`).
+- **Scanned pages are read with Vision OCR** (`DocumentInfo.ocrPages`): ~0.2 s per page on a Mac.
+  The first OCR in a newly built or installed app can take ~45 s while the system prepares its
+  model (seen on the Mac; not yet measured on an iPhone). OCR replaces a page's text only when the
+  page has < 50 characters of text and OCR finds more than twice as much, so short typed pages keep
+  their fonts. OCR can misread lone letters (`l` → `I`) and drops spacing in math (`x = y + 2` →
+  `x=y +2`); tables aren't handled specially. Pages still without text are listed in
+  `DocumentInfo.pagesWithoutText`. Turn OCR off with `RAGConfiguration.ocrScannedPages = false`.
+- **PDFs set entirely in a monospaced font** (e.g. made from a plain-text file with `cupsfilter`)
+  are treated as code, and code is never split — so their chunks are much larger than 400
+  characters (a 7,000-character manual became 4 chunks). Search still works, but hits are less precise.
 - PDFs set in Apple's **system font** lose bold/monospace information when read back, so headings
   are found by size only and code isn't recognized as code.
 - Token counts are exact for Apple's model when Apple Intelligence is available; otherwise a
