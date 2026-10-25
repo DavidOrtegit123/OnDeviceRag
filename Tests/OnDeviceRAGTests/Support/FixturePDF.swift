@@ -21,13 +21,7 @@ enum FixturePDF {
         let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &box, nil)!
         for page in pages {
             context.beginPDFPage(nil)
-            var y = 740.0
-            for line in page {
-                let attributed = NSAttributedString(string: line.text, attributes: [.font: line.font])
-                context.textPosition = CGPoint(x: 72, y: y)
-                CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
-                y -= line.font.pointSize * 1.8
-            }
+            draw(page, in: context)
             context.endPDFPage()
         }
         context.closePDF()
@@ -43,6 +37,38 @@ enum FixturePDF {
             document.outlineRoot = root
         }
         return document
+    }
+
+    /// Like `make`, but each page is a 144-dpi picture of the text with no text layer — a scan.
+    static func makeScanned(pages: [[Line]]) -> PDFDocument {
+        let data = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &box, nil)!
+        let scale = 2.0
+        for page in pages {
+            let width = Int(box.width * scale), height = Int(box.height * scale)
+            let bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+            bitmap.setFillColor(CGColor(gray: 1, alpha: 1))
+            bitmap.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            bitmap.scaleBy(x: scale, y: scale)
+            draw(page, in: bitmap)
+            context.beginPDFPage(nil)
+            context.draw(bitmap.makeImage()!, in: box)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        return PDFDocument(data: data as Data)!
+    }
+
+    private static func draw(_ lines: [Line], in context: CGContext) {
+        var y = 740.0
+        for line in lines {
+            let attributed = NSAttributedString(string: line.text, attributes: [.font: line.font])
+            context.textPosition = CGPoint(x: 72, y: y)
+            CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+            y -= line.font.pointSize * 1.8
+        }
     }
 }
 #endif

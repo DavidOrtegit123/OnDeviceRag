@@ -313,7 +313,7 @@ struct PageOCRTests {
     @Test func blankPageGivesNoText() async throws {
         let pdf = FixturePDF.makeScanned(pages: [[]])
         let lines = try await PageOCR.lines(of: try #require(pdf.page(at: 0)), pageNumber: 1)
-        #expect(lines.allSatisfy(\.isBlank))
+        #expect(lines.allSatisfy { $0.isBlank })
     }
 
     @Test func rotatedScanIsReadUpright() async throws {
@@ -338,7 +338,7 @@ struct PageOCRTests {
         #expect(filled.pagesWithoutText == [3])
         #expect(filled.lines.map(\.page) == filled.lines.map(\.page).sorted())
         #expect(filled.lines.filter { $0.page == 1 }.allSatisfy { !$0.isOCR })
-        #expect(filled.lines.filter { $0.page == 2 }.allSatisfy(\.isOCR))
+        #expect(filled.lines.filter { $0.page == 2 }.allSatisfy { $0.isOCR })
         #expect(filled.lines.contains { $0.page == 2 && $0.text.contains("Every item keeps its original order") })
     }
 }

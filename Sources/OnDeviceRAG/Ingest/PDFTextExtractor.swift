@@ -27,13 +27,18 @@ enum PDFTextExtractor {
                 guard let substring else { return }
                 pageLines.append(makeLine(substring, range: range, in: attributed, page: pageNumber))
             }
-            let characters = pageLines.reduce(0) { $0 + $1.text.filter { !$0.isWhitespace }.count }
+            let characters = visibleCharacterCount(pageLines)
             if characters < minimumCharactersForTextPage {
                 empty.append(pageNumber)
             }
             lines += pageLines
         }
         return (lines, empty)
+    }
+
+    /// Non-whitespace characters in the lines (a page with < `minimumCharactersForTextPage` has no usable text).
+    static func visibleCharacterCount(_ lines: [TextLine]) -> Int {
+        lines.reduce(0) { $0 + $1.text.filter { !$0.isWhitespace }.count }
     }
 
     /// Top two outline levels, in document order.
