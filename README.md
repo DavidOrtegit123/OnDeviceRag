@@ -44,6 +44,40 @@ let prompt = "Reference material:\n\(context.text)\n\nQuestion: \(question)"
 All settings live in `RAGConfiguration`; the embedder, token counter and re-ranker are protocols,
 so you can plug in your own.
 
+## Saving and shipping indexes
+
+```swift
+// Saved between launches (re-embedding only when settings or the embedder change):
+let engine = try await RAGEngine(configuration: configuration, storageDirectory: appSupportURL.appending(path: "RAG"))
+// Documents shipped with the app, built on a Mac with `rag-index build`:
+try await engine.addPrebuiltIndex(at: Bundle.main.url(forResource: "textbook", withExtension: "ragindex")!)
+```
+
+- With a storage directory, each document is saved as one file (`<id>.ragdoc`). On the next launch
+  it's loaded without re-embedding. If the chunk settings changed, it's re-chunked from its saved
+  source (the original PDF isn't needed) and re-embedded; if the embedder changed, it's re-embedded.
+  Use one engine per storage directory.
+- A prebuilt index (`.ragindex`, one file) is **read-only**: its documents are searchable but can't
+  be removed or replaced (`RAGError.prebuiltDocument`) and are never written to the storage
+  directory. If it was built with other settings or another embedder, it's rebuilt in memory on
+  every launch — rebuild the file instead. A shipped document whose ID is already loaded is skipped.
+- Files that can't be read (damaged, newer format version) and skipped documents are listed in
+  `engine.loadIssues`; they never stop the engine from opening.
+- `isPrebuilt(_:)` tells shipped documents from the user's; `exportIndex(to:)` writes the user's
+  documents into a `.ragindex`.
+
+Build and check an index on a Mac with the same code the apps run:
+
+```bash
+M=~/Developer/coreai-models/exports/bge_small_buckets_float16.aimodel
+swift run -c release --package-path Packages/OnDeviceRAG rag-index build --model $M --output textbook.ragindex chapter1.pdf notes.md
+swift run -c release --package-path Packages/OnDeviceRAG rag-index query --model $M --index textbook.ragindex [--budget 2000] "How do I encode a list?"
+```
+
+Document IDs are the input file names without extension, so a rebuild keeps the same IDs.
+`.md`/`.txt` inputs are read as text (`## ` headings). The index format is one file on purpose:
+Xcode flattens resource folders into the app bundle.
+
 ## Limitations
 
 - **English only** (the embedding model). Other languages need a multilingual model.
@@ -52,9 +86,11 @@ so you can plug in your own.
   (`DocumentInfo.mathHeavyPages`).
 - PDFs set in Apple's **system font** lose bold/monospace information when read back, so headings
   are found by size only and code isn't recognized as code.
-- The index lives **in memory**: documents are re-embedded on each launch (saving to disk is planned).
 - Token counts are exact for Apple's model when Apple Intelligence is available; otherwise a
   conservative estimate (characters ÷ 3). Supply a `TokenCounter` for other models.
+- **Exact token counting is slow:** with Apple's counter, `context(for:)` took ~2.2–2.8 s on a Mac
+  (search itself: 7–36 ms), because each candidate section is counted with Foundation Models.
+  `EstimatingTokenCounter` avoids it. A fix is planned.
 - Adds ~64 MB (the embedding model) to your app.
 
 ## Tests

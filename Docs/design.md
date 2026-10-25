@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: milestone 1 implemented and Mac-tested (2026-10-22); milestones 2–5 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
+_Status: milestone 1 and milestone 2a (persistence, prebuilt indexes, `rag-index`) implemented and Mac-tested (2026-10-22 / 2026-10-25); 2b, 2c and milestones 3–5 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -75,16 +75,20 @@ question (+ optional history) ──► Retriever ◄─────────
 
 ```swift
 public actor RAGEngine {
-    // Milestone 1: in memory. `storageDirectory` and `addPrebuiltIndex(at:)` arrive with
-    // persistence in milestone 2.
-    public init(configuration: RAGConfiguration)
+    public init(configuration: RAGConfiguration)                                    // in memory
+    public init(configuration: RAGConfiguration, storageDirectory: URL) async throws // saved to disk (2a)
 
     // Documents
     public func addDocument(pdfAt url: URL, title: String? = nil) async throws -> DocumentInfo
     public func addDocument(_ document: IngestedDocument) async throws -> DocumentInfo  // e.g. from DocumentIngestor.ingestText
-    public func addPrebuiltIndex(at url: URL) async throws          // milestone 2: documents shipped with the app
-    public func removeDocument(id: DocumentID) async throws
+    public func removeDocument(id: DocumentID) throws
     public var documents: [DocumentInfo] { get }
+
+    // Shipped documents (2a): a read-only `.ragindex` file built with `rag-index`
+    @discardableResult public func addPrebuiltIndex(at url: URL) async throws -> [DocumentInfo]
+    public func exportIndex(to url: URL) throws        // the user's (non-prebuilt) documents
+    public func isPrebuilt(_ id: DocumentID) -> Bool
+    public var loadIssues: [String] { get }            // unreadable files, skipped ID clashes
 
     // Retrieval
     public func search(_ question: String, history: [String] = [], limit: Int = 20)
@@ -144,15 +148,26 @@ reranker (`nil` = off). `history` is **optional and empty by default** — the r
   the same `coreai-models` toolchain versions.
 
 **Index:**
-- On disk per document: `manifest.json` (document info, settings, embedder ID + revision),
-  `pages.json` (extracted page text), `chunks.json`, `vectors.f16` (contiguous float16, chunk order).
-- An index built with a different embedder ID/revision or chunk settings is rebuilt from the stored
-  page text (no need for the original PDF).
+- On disk: **one JSON file per document** (`<id>.ragdoc`, written atomically) holding its info,
+  sections, chunks, embedder ID + dimension, chunk settings, the date added, its **source** (the
+  extracted lines with font facts + outline for PDFs, or the original text) and its vectors as Float16
+  (base64; ~1 MB for a 1,000-chunk textbook). Format version 1. *(Changed in 2a from the first draft's
+  folder of four files per document: Xcode flattens resource folders into the app bundle — the same
+  problem as the Qwen model folder in the research app — so a folder-based shipped index would collide;
+  a single file can't be flattened.)*
+- Rebuild rules on load: chunk settings changed → re-chunk from the stored source and re-embed (no need
+  for the original PDF); embedder changed or vectors damaged → re-embed; otherwise use as stored.
+  Rebuilt user documents are saved back; prebuilt ones stay in memory only.
+- Unreadable or newer-format files are listed in `loadIssues` and skipped — they never block opening.
 - Search is brute-force cosine with Accelerate (`vDSP`): fine up to ~50k chunks
   (≈ 20M multiply-adds per query, milliseconds).
-- **Prebuilt indexes:** a macOS command-line tool in the package (`rag-index`) turns PDFs into an
-  index folder the app ships as a resource — same code path as on-device, so results are identical
-  and the user waits for nothing on first launch.
+- **Prebuilt indexes:** a macOS command-line tool in the package (`rag-index build`) turns PDFs (or
+  `.md`/`.txt`) into **one `.ragindex` file** (all its documents, same record format) the app ships as
+  a resource — same code path as on-device, so results are identical and the user waits for nothing
+  on first launch. Document IDs = input file names, so rebuilds keep IDs. Prebuilt documents are
+  read-only (can't be removed or replaced) and never written to the storage directory; a shipped
+  document whose ID is already loaded is skipped. `rag-index query` prints the packed context.
+  Measured on the 4 research manuals (Mac): model load 0.15–1.1 s, 0.15–0.22 s per manual, 202 KB index.
 
 **Retriever:**
 - Query text = the question, or, when `history` is given, the question followed by the last ≤ 2
@@ -245,15 +260,25 @@ results are not affected.
   but this repo ignores `*.aimodel`. Options for the standalone repo: commit it directly, Git LFS, or a
   release asset fetched by a script. To decide at extraction time.
 - Cached Core AI specialization across launches on iPhone — to confirm.
+- **Exact token counting is slow** (found 2026-10-25 with `rag-index query`, Mac): with
+  `AppleTokenCounter`, `context(for:)` took ~2.2–2.8 s while search itself took 7–36 ms — each
+  candidate section is counted with Foundation Models' `tokenCount(for:)`. Likely slower on iPhone
+  (unmeasured). Planned fix, before 2c: count each section once at ingest and store it (or count only
+  the final text exactly). `EstimatingTokenCounter` avoids it meanwhile.
 
 ## 11. Milestones
 
 1. **Core package:** Ingest, Embedder, Index (in memory), Retriever, Context packer, `Reranker`
    protocol (the Foundation Models implementation comes with the benchmark in milestone 3) + unit
    tests (Mac). OCR for scanned pages moves to milestone 2. Plan: `Docs/milestone-1-plan.md`.
-2. **Persistence and shipping:** on-disk index, `rag-index` CLI, prebuilt indexes; integrate into this
-   app's normal chat (replacing `KnowledgeRetriever`'s internals without changing its call sites —
-   Architecture Rule #4). Batch oracle mode untouched.
+2. **Persistence, shipping and app integration**, in three plans:
+   - **2a — done (2026-10-25):** on-disk index with rebuild rules, prebuilt read-only indexes,
+     `rag-index` CLI. Plan: `Docs/milestone-2a-plan.md`.
+   - **2b:** Vision OCR for scanned pages (package only).
+   - **2c:** integrate into this app's normal chat: newly imported PDFs keep a copy of the original
+     (older imports and photos fall back to their stored text); `referenceDocument(for:)` becomes async
+     and uses the package (Architecture Rule #4 updated when 2c is built). The explicit-pick (oracle)
+     branch and batch Stage 2/3 code stay byte-identical; `KnowledgeRetriever` stays but chat stops using it.
 3. **Benchmark:** build the harder test set; evaluate conditions; decide the reranker default.
 4. **On-device verification** on iPhone and Mac.
 5. **Extraction:** move `Packages/OnDeviceRAG/` to its own GitHub repo (with history), tag `0.1.0`,
