@@ -76,6 +76,40 @@ struct PDFIngestTests {
         #expect(document.chunks.filter(\.isCode).map(\.text) == ["encode([1])"])
     }
 
+    /// A PDF printed from a plain-text file is entirely monospaced: the font says nothing about code.
+    private let plainTextRules = (1...12).map { "Rule \($0) says the encoder writes every value as plain text before sending it." }
+
+    @Test func allMonospacedPDFIsChunkedAsProse() async throws {
+        let pdf = FixturePDF.make(pages: [plainTextRules.map(FixturePDF.Line.code)])
+        let document = try await DocumentIngestor.ingest(pdf: pdf, title: "Rules", id: "r", settings: IngestSettings())
+        #expect(document.chunks.count >= 3)
+        #expect(document.chunks.allSatisfy { !$0.isCode && $0.text.count <= 400 })
+        #expect(document.chunks.first?.text.hasPrefix("Rule 1 says") == true)
+    }
+
+    @Test func allMonospacedDocumentReingestsIdentically() async throws {
+        let pdf = FixturePDF.make(pages: [plainTextRules.map(FixturePDF.Line.code)])
+        let original = try await DocumentIngestor.ingest(pdf: pdf, title: "Rules", id: "r", settings: IngestSettings())
+        guard case let .pdf(lines, _, _, _) = original.source else {
+            Issue.record("expected a PDF source")
+            return
+        }
+        #expect(lines.allSatisfy { $0.isMonospaced })   // the source keeps the original font facts
+        let again = DocumentIngestor.reingest(original.source, title: "Rules", id: "r", settings: IngestSettings())
+        #expect(again.chunks == original.chunks)
+    }
+
+    @Test func codeListingInAMostlyProseDocumentStaysCode() async throws {
+        let prose = plainTextRules.prefix(6).map(FixturePDF.Line.body)
+        let listing = ["def encode(value):", "    return str(value)", "", "def decode(text):", "    return int(text)"]
+            .filter { !$0.isEmpty }.map(FixturePDF.Line.code)
+        let pdf = FixturePDF.make(pages: [Array(prose) + listing])
+        let document = try await DocumentIngestor.ingest(pdf: pdf, title: "Rules", id: "r", settings: IngestSettings())
+        let code = document.chunks.filter(\.isCode)
+        #expect(code.count == 1)
+        #expect(code.first?.text.contains("def decode(text):") == true)
+    }
+
     @Test func unreadableFileThrows() async {
         let url = URL(fileURLWithPath: "/nonexistent/file.pdf")
         await #expect(throws: IngestError.unreadablePDF(url)) { try await DocumentIngestor.ingestPDF(at: url) }

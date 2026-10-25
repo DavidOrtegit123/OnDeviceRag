@@ -91,9 +91,10 @@ Xcode flattens resource folders into the app bundle.
   their fonts. OCR can misread lone letters (`l` → `I`) and drops spacing in math (`x = y + 2` →
   `x=y +2`); tables aren't handled specially. Pages still without text are listed in
   `DocumentInfo.pagesWithoutText`. Turn OCR off with `RAGConfiguration.ocrScannedPages = false`.
-- **PDFs set entirely in a monospaced font** (e.g. made from a plain-text file with `cupsfilter`)
-  are treated as code, and code is never split — so their chunks are much larger than 400
-  characters (a 7,000-character manual became 4 chunks). Search still works, but hits are less precise.
+- **PDFs set (almost) entirely in a monospaced font** (≥ 80% of characters, e.g. a plain-text file
+  printed to PDF) are read as ordinary text, since the font can't mark code there; code listings in
+  such PDFs are therefore split like prose. Their headings usually aren't found either (every line
+  has the same size and weight), so sections fall back to ~1,500-character windows.
 - PDFs set in Apple's **system font** lose bold/monospace information when read back, so headings
   are found by size only and code isn't recognized as code.
 - Token counts are exact for Apple's model when Apple Intelligence is available; otherwise a

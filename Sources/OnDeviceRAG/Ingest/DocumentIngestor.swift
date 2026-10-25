@@ -28,6 +28,9 @@ public enum IngestError: Error, Equatable {
 public enum DocumentIngestor {
     static let mathSymbols: Set<Character> = Set("=+−×÷^√∑∏∫≤≥≠≈∞πθλμσΔ∂±⇒⇔∨∧∈∉⊂⊆∪∩²³")
     static let mathHeavyShare = 0.05
+    /// Monospace marks code only when it's the exception: in a document at least this monospaced
+    /// (e.g. a plain-text file printed to PDF) every line is treated as ordinary text.
+    static let mostlyMonospacedShare = 0.8
 
     /// Reads a PDF; pages without a text layer (scans) are read with OCR unless `ocr` is false.
     public static func ingestPDF(at url: URL, title: String? = nil, id: DocumentID = UUID().uuidString,
@@ -72,7 +75,11 @@ public enum DocumentIngestor {
     /// Lines → sections → chunks; shared by fresh PDFs and stored PDF sources.
     static func ingest(lines: [TextLine], outline: [OutlineEntry], pageCount: Int, pagesWithoutText: [Int],
                        title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
-        let detected = SectionDetector.detect(lines: lines, outline: outline, documentTitle: title,
+        // The source keeps the original lines; this rule is re-applied on every re-chunk.
+        let readableLines = isMostlyMonospaced(lines)
+            ? lines.map { line in var prose = line; prose.isMonospaced = false; return prose }
+            : lines
+        let detected = SectionDetector.detect(lines: readableLines, outline: outline, documentTitle: title,
                                               windowLength: settings.sectionWindowLength)
         return assemble(sections: detected.sections, source: detected.source, title: title, id: id,
                         pageCount: pageCount, pagesWithoutText: pagesWithoutText,
@@ -108,6 +115,13 @@ public enum DocumentIngestor {
                                 chunkCount: chunks.count, sectionSource: source,
                                 pagesWithoutText: pagesWithoutText, ocrPages: ocrPages, mathHeavyPages: mathHeavyPages)
         return IngestedDocument(info: info, sections: sections, chunks: chunks, source: documentSource)
+    }
+
+    private static func isMostlyMonospaced(_ lines: [TextLine]) -> Bool {
+        let total = PDFTextExtractor.visibleCharacterCount(lines)
+        guard total > 0 else { return false }
+        let monospaced = PDFTextExtractor.visibleCharacterCount(lines.filter(\.isMonospaced))
+        return Double(monospaced) / Double(total) >= mostlyMonospacedShare
     }
 
     private static func mathHeavyPages(_ lines: [TextLine]) -> [Int] {

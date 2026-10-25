@@ -261,10 +261,14 @@ results are not affected.
   and math spacing (`x = y + 2` → `x=y +2`) — relevant for the algebra tutor. Tables aren't handled
   separately; whether table text arrives in `paragraphs` is unverified (check with real scans in
   milestone 3). Tested only on synthetic scans so far; no real scanned PDF has been tried.
-- **All-monospace PDFs** (e.g. a plain-text file printed with `cupsfilter`, Monaco font) are treated
-  as one code block per page, and code is never split: a 7,000-character manual became 4 chunks of
-  500–1,950 characters (found 2026-10-25). Possible fix, as its own task: split long code blocks at
-  blank lines, or treat an all-monospace page as prose.
+- **All-monospace PDFs** (e.g. a plain-text file printed with `cupsfilter`, Monaco font; PDFKit also
+  drops their blank lines) were one unsplit code block per section: a 7,000-character manual became
+  4 chunks of 500–1,950 characters (found 2026-10-25). **Fixed (2026-10-25):** when ≥ 80% of a
+  document's visible characters are monospaced (`DocumentIngestor.mostlyMonospacedShare`), every
+  line is treated as ordinary text (decided per document, so a full-page listing in a code book stays
+  code); the stored source keeps the original lines and the rule re-runs on every re-chunk. Same
+  manual: 20 chunks, max 398 characters. Remaining: code listings in such PDFs are split like prose,
+  and their headings aren't found (uniform size/weight) → ~1,500-character window sections.
 - **PDFs set in Apple's system font** (e.g. exported from Pages/Notes) lose bold/monospace when read
   back: PDFKit reports the private `.SF…` font as Times New Roman (found 2026-10-22 in milestone 1).
   Headings are then detected by size only and code isn't recognized as code. Named fonts
