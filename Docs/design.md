@@ -260,11 +260,15 @@ results are not affected.
   but this repo ignores `*.aimodel`. Options for the standalone repo: commit it directly, Git LFS, or a
   release asset fetched by a script. To decide at extraction time.
 - Cached Core AI specialization across launches on iPhone — to confirm.
-- **Exact token counting is slow** (found 2026-10-25 with `rag-index query`, Mac): with
-  `AppleTokenCounter`, `context(for:)` took ~2.2–2.8 s while search itself took 7–36 ms — each
-  candidate section is counted with Foundation Models' `tokenCount(for:)`. Likely slower on iPhone
-  (unmeasured). Planned fix, before 2c: count each section once at ingest and store it (or count only
-  the final text exactly). `EstimatingTokenCounter` avoids it meanwhile.
+- **Exact token counting is slow per call** (found 2026-10-25 with `rag-index query`, Mac): Foundation
+  Models' `tokenCount(for:)` costs ~48 ms per call regardless of length, and packing made ~50 calls,
+  so `context(for:)` took ~2.2–2.8 s while search took 7–36 ms. **Fixed (2026-10-25):** the engine
+  wraps the counter in `CachingTokenCounter` (exact counts only — estimates are never cached), counts
+  the block separator once per pack, and pre-counts each document's whole-section blocks in the
+  background when it's added or loaded. Mac: repeated question 0.014 s, new question after pre-counting
+  0.43 s, packed text unchanged; a question during pre-counting is still ~2.5 s. Counts are not saved
+  to disk (a `TokenCounter` has no identity, so a stored count could be reused with another model's
+  counter) — revisit if the iPhone pre-count turns out too slow. iPhone not yet measured.
 
 ## 11. Milestones
 

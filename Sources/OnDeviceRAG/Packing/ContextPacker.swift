@@ -12,6 +12,7 @@ enum ContextPacker {
         var blocks: [Block] = []
         var used = 0
         var seen: Set<String> = []
+        var separatorCost: Int?
 
         for candidate in candidates {
             let chunk = candidate.chunk
@@ -19,15 +20,19 @@ enum ContextPacker {
             guard !seen.contains(key), let document = index.document(chunk.documentID),
                   chunk.sectionIndex < document.sections.count else { continue }
             let section = document.sections[chunk.sectionIndex]
-            let separatorCost = blocks.isEmpty ? 0 : await counter.count(blockSeparator).value
-            let remaining = tokenBudget - used - separatorCost
+            var separator = 0
+            if !blocks.isEmpty {
+                if separatorCost == nil { separatorCost = await counter.count(blockSeparator).value }
+                separator = separatorCost ?? 0
+            }
+            let remaining = tokenBudget - used - separator
             if remaining <= 0 { break }
 
-            let whole = header(section.title, document.info.title, section.pages) + "\n" + section.text
+            let whole = wholeSectionText(section, documentTitle: document.info.title)
             let wholeCost = await counter.count(whole).value
             if wholeCost <= remaining {
                 blocks.append(Block(text: whole, section: contextSection(section, document, section.pages, whole: true)))
-                used += separatorCost + wholeCost
+                used += separator + wholeCost
                 seen.insert(key)
                 continue
             }
@@ -35,7 +40,7 @@ enum ContextPacker {
             if let window = await window(around: chunk.position, in: sectionChunks, documentTitle: document.info.title,
                                          section: section, remaining: remaining, counter: counter) {
                 blocks.append(Block(text: window.text, section: contextSection(section, document, window.pages, whole: false)))
-                used += separatorCost + window.cost
+                used += separator + window.cost
                 seen.insert(key)
             }
         }
@@ -61,6 +66,11 @@ enum ContextPacker {
             }
             blocks.removeLast()
         }
+    }
+
+    /// The block a whole section becomes — also what `RAGEngine` pre-counts when documents are added.
+    static func wholeSectionText(_ section: Section, documentTitle: String) -> String {
+        header(section.title, documentTitle, section.pages) + "\n" + section.text
     }
 
     private static func header(_ sectionTitle: String, _ documentTitle: String, _ pages: PageRange) -> String {

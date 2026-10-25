@@ -88,9 +88,11 @@ Xcode flattens resource folders into the app bundle.
   are found by size only and code isn't recognized as code.
 - Token counts are exact for Apple's model when Apple Intelligence is available; otherwise a
   conservative estimate (characters ÷ 3). Supply a `TokenCounter` for other models.
-- **Exact token counting is slow:** with Apple's counter, `context(for:)` took ~2.2–2.8 s on a Mac
-  (search itself: 7–36 ms), because each candidate section is counted with Foundation Models.
-  `EstimatingTokenCounter` avoids it. A fix is planned.
+- **Exact token counting is slow per call** (~48 ms on a Mac, whatever the length), so the engine
+  remembers exact counts and pre-counts each document's sections in the background when it's added
+  or loaded (~48 ms per section, once per launch). Measured on a Mac with Apple's counter: a repeated
+  question 0.014 s, a new question after pre-counting 0.43 s (was ~2.2–2.8 s); a question asked
+  while pre-counting is still running isn't faster (~2.5 s). Not yet measured on an iPhone.
 - Adds ~64 MB (the embedding model) to your app.
 
 ## Tests

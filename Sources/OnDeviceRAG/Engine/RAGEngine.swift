@@ -9,6 +9,10 @@ public actor RAGEngine {
     private var index: InMemoryIndex
     private var addedAt: [DocumentID: Date] = [:]
     private var prebuiltIDs: Set<DocumentID> = []
+    /// The configured counter, with exact counts remembered (see `CachingTokenCounter`).
+    private let tokenCounter: CachingTokenCounter
+    /// Background pre-counting of section blocks; each run waits for the previous one.
+    private var warmUp: Task<Void, Never>?
 
     /// Documents that couldn't be loaded (unreadable file, unsupported format, ID clash), one line each.
     public private(set) var loadIssues: [String] = []
@@ -29,6 +33,7 @@ public actor RAGEngine {
     private init(configuration: RAGConfiguration, storage: URL?) {
         self.configuration = configuration
         storageDirectory = storage
+        tokenCounter = CachingTokenCounter(configuration.tokenCounter)
         index = InMemoryIndex(dimension: configuration.embedder.dimension, k1: configuration.bm25K1, b: configuration.bm25B)
     }
 
@@ -48,6 +53,7 @@ public actor RAGEngine {
         }
         index.add(document, vectors: vectors)
         addedAt[document.info.id] = date
+        warmTokenCounts(for: document)
         return document.info
     }
 
@@ -73,7 +79,7 @@ public actor RAGEngine {
             candidates = await rerank(question, candidates, with: reranker)
         }
         return await ContextPacker.pack(candidates, index: index, tokenBudget: tokenBudget ?? configuration.tokenBudget,
-                                        counter: configuration.tokenCounter)
+                                        counter: tokenCounter)
     }
 
     /// Reorders the first `rerankCount` candidates; any error or non-reordering output keeps the original order.
@@ -117,8 +123,33 @@ public actor RAGEngine {
             addedAt[stored.info.id] = stored.addedAt
             prebuiltIDs.insert(stored.info.id)
             added.append(prepared.document.info)
+            warmTokenCounts(for: prepared.document)
         }
         return added
+    }
+
+    // MARK: - Token counts
+
+    /// Counts the document's whole-section blocks (and the block separator) in the background, so
+    /// the first question about it doesn't pay one slow exact count per section. Questions asked
+    /// meanwhile still work; they just count what isn't cached yet.
+    private func warmTokenCounts(for document: IngestedDocument) {
+        let texts = [ContextPacker.blockSeparator]
+            + document.sections.map { ContextPacker.wholeSectionText($0, documentTitle: document.info.title) }
+        let counter = tokenCounter
+        let previous = warmUp
+        warmUp = Task {
+            await previous?.value
+            await counter.warm(texts)
+        }
+    }
+
+    /// Waits until all background pre-counting has finished (for tests and benchmarks).
+    func waitForTokenWarmUp() async {
+        while let task = warmUp {
+            await task.value
+            if warmUp == task { warmUp = nil }
+        }
     }
 
     // MARK: - Loading
@@ -134,6 +165,7 @@ public actor RAGEngine {
             }
             index.add(prepared.document, vectors: prepared.vectors)
             addedAt[prepared.document.info.id] = stored.addedAt
+            warmTokenCounts(for: prepared.document)
         }
     }
 
