@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- `ChatTurn.recent(_:settings:counter:)`: the latest turns that fit a history budget, without an
+  engine — the same rule as `RAGContext.history`, for apps that pin a document or run their own
+  retrieval. Additive; no other change.
+
 ## 0.2.0
 
 - **Conversation history, switchable** (`RAGConfiguration.history`, both off by default):

@@ -6,7 +6,7 @@
 set -eu
 REPO="DavidOrtegit123/OnDeviceRag"
 DEST="${1:-.}"
-TAG="${2:-0.2.0}"
+TAG="${2:-0.2.1}"
 ASSET="bge_small_buckets_float16.aimodel.zip"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
