@@ -76,3 +76,21 @@ extension HistoryTests {
         #expect(ignored == plain)
     }
 }
+
+extension HistoryTests {
+    @Test func recentMatchesTheContextWindowForTheSameSettings() async {
+        var settings = HistorySettings()
+        settings.tokenBudget = 21
+        let recent = await ChatTurn.recent(abc, settings: settings, counter: CharacterCounter())
+        let window = await HistoryWindow.select(abc, maximumTurns: 6, tokenBudget: 21, counter: CharacterCounter())
+        #expect(recent.turns == window.turns)
+        #expect(recent.turns == [.assistant("b"), .user("c")])
+        #expect(recent.tokenCount == 21)
+    }
+
+    @Test func recentKeepsTheLatestSixTurnsByDefault() async {
+        let turns = (1...8).map { ChatTurn.user("q\($0)") }
+        let recent = await ChatTurn.recent(turns, counter: CharacterCounter())
+        #expect(recent.turns == Array(turns.suffix(6)))
+    }
+}

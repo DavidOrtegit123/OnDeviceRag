@@ -78,6 +78,8 @@ Both switches are **off by default**: without them, passing history changes noth
 only the last `history.searchTurns` (2) user turns; `context.history` holds the latest turns that fit
 `history.tokenBudget` (600 tokens, at most `history.maximumTurns` = 6, oldest dropped first). The
 package doesn't store conversations — your app keeps the chat log and passes it in.
+Without calling `context(for:)` (your own retrieval, a pinned document), use
+`ChatTurn.recent(history, settings: configuration.history)` for the same trimming.
 
 `renameDocument(id:to:)` gives a document a new title (re-chunked from its saved source).
 `context.sections` lists the sections used (title, document, pages) for citations.
