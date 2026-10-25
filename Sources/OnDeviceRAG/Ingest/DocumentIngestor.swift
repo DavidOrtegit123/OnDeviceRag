@@ -55,7 +55,7 @@ public enum DocumentIngestor {
             sections[sections.count - 1].lines.append(TextLine(raw, isMonospaced: inCode))
         }
         return assemble(sections: sections, source: .provided, title: title, id: id, pageCount: 1,
-                        pagesWithoutText: [], mathHeavyPages: [], settings: settings, documentSource: .text(text))
+                        pagesWithoutText: [], ocrPages: [], mathHeavyPages: [], settings: settings, documentSource: .text(text))
     }
 
     static func ingest(pdf document: PDFDocument, title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
@@ -71,6 +71,7 @@ public enum DocumentIngestor {
                                               windowLength: settings.sectionWindowLength)
         return assemble(sections: detected.sections, source: detected.source, title: title, id: id,
                         pageCount: pageCount, pagesWithoutText: pagesWithoutText,
+                        ocrPages: Set(lines.filter(\.isOCR).map(\.page)).sorted(),
                         mathHeavyPages: mathHeavyPages(lines), settings: settings,
                         documentSource: .pdf(lines: lines, outline: outline, pageCount: pageCount, pagesWithoutText: pagesWithoutText))
     }
@@ -88,7 +89,7 @@ public enum DocumentIngestor {
 
     /// Sections without any chunk are dropped, so `Section.index` is always its position in `sections`.
     private static func assemble(sections detected: [DetectedSection], source: SectionSource, title: String, id: DocumentID,
-                                 pageCount: Int, pagesWithoutText: [Int], mathHeavyPages: [Int],
+                                 pageCount: Int, pagesWithoutText: [Int], ocrPages: [Int], mathHeavyPages: [Int],
                                  settings: IngestSettings, documentSource: DocumentSource) -> IngestedDocument {
         var sections: [Section] = []
         var chunks: [Chunk] = []
@@ -100,7 +101,7 @@ public enum DocumentIngestor {
         }
         let info = DocumentInfo(id: id, title: title, pageCount: pageCount, sectionCount: sections.count,
                                 chunkCount: chunks.count, sectionSource: source,
-                                pagesWithoutText: pagesWithoutText, mathHeavyPages: mathHeavyPages)
+                                pagesWithoutText: pagesWithoutText, ocrPages: ocrPages, mathHeavyPages: mathHeavyPages)
         return IngestedDocument(info: info, sections: sections, chunks: chunks, source: documentSource)
     }
 

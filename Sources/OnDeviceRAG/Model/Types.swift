@@ -41,10 +41,33 @@ public struct DocumentInfo: Sendable, Hashable, Codable {
     public let sectionCount: Int
     public let chunkCount: Int
     public let sectionSource: SectionSource
-    /// Pages with < 50 non-whitespace characters (probably scanned; OCR comes in milestone 2).
+    /// Pages with < 50 non-whitespace characters even after OCR (blank, a picture without text,
+    /// OCR off or failed).
     public let pagesWithoutText: [Int]
+    /// Pages whose text was read with OCR (scanned pages).
+    public let ocrPages: [Int]
     /// Pages where math symbols are > 5% of non-whitespace characters (extraction may be garbled).
     public let mathHeavyPages: [Int]
+}
+
+extension DocumentInfo {
+    enum CodingKeys: String, CodingKey {
+        case id, title, pageCount, sectionCount, chunkCount, sectionSource, pagesWithoutText, ocrPages, mathHeavyPages
+    }
+
+    /// Infos saved before OCR existed (milestone 2a files) have no `ocrPages` key.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try container.decode(DocumentID.self, forKey: .id),
+                  title: try container.decode(String.self, forKey: .title),
+                  pageCount: try container.decode(Int.self, forKey: .pageCount),
+                  sectionCount: try container.decode(Int.self, forKey: .sectionCount),
+                  chunkCount: try container.decode(Int.self, forKey: .chunkCount),
+                  sectionSource: try container.decode(SectionSource.self, forKey: .sectionSource),
+                  pagesWithoutText: try container.decode([Int].self, forKey: .pagesWithoutText),
+                  ocrPages: try container.decodeIfPresent([Int].self, forKey: .ocrPages) ?? [],
+                  mathHeavyPages: try container.decode([Int].self, forKey: .mathHeavyPages))
+    }
 }
 
 public struct Section: Sendable, Hashable, Codable {
