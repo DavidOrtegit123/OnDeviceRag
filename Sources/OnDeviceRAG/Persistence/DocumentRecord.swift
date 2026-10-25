@@ -3,6 +3,8 @@ import Foundation
 public enum RAGError: Error, Equatable {
     /// Prebuilt (shipped) documents are read-only.
     case prebuiltDocument(DocumentID)
+    /// No document with this ID is loaded.
+    case unknownDocument(DocumentID)
     case unsupportedFormat(version: Int, file: String)
 }
 

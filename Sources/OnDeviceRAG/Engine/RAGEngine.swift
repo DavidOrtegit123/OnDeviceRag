@@ -67,6 +67,17 @@ public actor RAGEngine {
         addedAt[id] = nil
     }
 
+    /// Gives a document a new title: re-chunks it from its stored source (the title heads text
+    /// documents' first section and every packed block), re-embeds it and, with storage, saves it.
+    /// Keeps its added-at date.
+    @discardableResult
+    public func renameDocument(id: DocumentID, to title: String) async throws -> DocumentInfo {
+        guard !prebuiltIDs.contains(id) else { throw RAGError.prebuiltDocument(id) }
+        guard let current = index.document(id) else { throw RAGError.unknownDocument(id) }
+        return try await addDocument(DocumentIngestor.reingest(current.source, title: title, id: id,
+                                                               settings: configuration.ingest))
+    }
+
     /// Best chunks first (hybrid dense + BM25). `history`: earlier turns, oldest first — used only
     /// when `configuration.history.useForSearch` is on.
     public func search(_ question: String, history: [ChatTurn] = [], limit: Int? = nil) async throws -> [RetrievedChunk] {
