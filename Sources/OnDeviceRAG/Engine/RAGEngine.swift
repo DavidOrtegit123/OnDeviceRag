@@ -67,20 +67,44 @@ public actor RAGEngine {
         addedAt[id] = nil
     }
 
-    /// Best chunks first (hybrid dense + BM25). `history`: earlier chat messages, oldest first; optional.
-    public func search(_ question: String, history: [String] = [], limit: Int? = nil) async throws -> [RetrievedChunk] {
-        try await Retriever.retrieve(question: question, history: history, index: index, embedder: configuration.embedder,
-                                     settings: configuration.retrieval, limit: limit ?? configuration.retrieval.candidateCount)
+    /// Gives a document a new title: re-chunks it from its stored source (the title heads text
+    /// documents' first section and every packed block), re-embeds it and, with storage, saves it.
+    /// Keeps its added-at date.
+    @discardableResult
+    public func renameDocument(id: DocumentID, to title: String) async throws -> DocumentInfo {
+        guard !prebuiltIDs.contains(id) else { throw RAGError.prebuiltDocument(id) }
+        guard let current = index.document(id) else { throw RAGError.unknownDocument(id) }
+        return try await addDocument(DocumentIngestor.reingest(current.source, title: title, id: id,
+                                                               settings: configuration.ingest))
+    }
+
+    /// Best chunks first (hybrid dense + BM25). `history`: earlier turns, oldest first — used only
+    /// when `configuration.history.useForSearch` is on.
+    public func search(_ question: String, history: [ChatTurn] = [], limit: Int? = nil) async throws -> [RetrievedChunk] {
+        let settings = configuration.history
+        return try await Retriever.retrieve(question: question, history: settings.useForSearch ? history : [],
+                                            searchTurns: settings.searchTurns, index: index, embedder: configuration.embedder,
+                                            settings: configuration.retrieval, limit: limit ?? configuration.retrieval.candidateCount)
     }
 
     /// Text for the prompt: whole sections (or windows) in rank order, within the token budget.
-    public func context(for question: String, history: [String] = [], tokenBudget: Int? = nil) async throws -> RAGContext {
+    /// `history` (oldest first) is searched when `history.useForSearch` is on and returned, trimmed
+    /// to `history.tokenBudget`, when `history.includeInContext` is on.
+    public func context(for question: String, history: [ChatTurn] = [], tokenBudget: Int? = nil) async throws -> RAGContext {
         var candidates = try await search(question, history: history)
         if let reranker = configuration.reranker {
             candidates = await rerank(question, candidates, with: reranker)
         }
-        return await ContextPacker.pack(candidates, index: index, tokenBudget: tokenBudget ?? configuration.tokenBudget,
-                                        counter: tokenCounter)
+        var context = await ContextPacker.pack(candidates, index: index, tokenBudget: tokenBudget ?? configuration.tokenBudget,
+                                               counter: tokenCounter)
+        let settings = configuration.history
+        if settings.includeInContext {
+            let window = await HistoryWindow.select(history, maximumTurns: settings.maximumTurns,
+                                                    tokenBudget: settings.tokenBudget, counter: tokenCounter)
+            context.history = window.turns
+            context.historyTokenCount = window.tokenCount
+        }
+        return context
     }
 
     /// Reorders the first `rerankCount` candidates; any error or non-reordering output keeps the original order.

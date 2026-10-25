@@ -40,13 +40,20 @@ struct EngineTests {
         #expect(remaining.allSatisfy { $0.chunk.documentID == "cache" })
     }
 
-    @Test func historyIsOptionalAndUsed() async throws {
-        let engine = RAGEngine(configuration: configuration())
-        _ = try await engine.addDocument(DocumentIngestor.ingestText(zorp + "\n\n" + cache, title: "Mixed", id: "m"))
-        let withoutHistory = try await engine.search("and how does it work?")
-        let withHistory = try await engine.search("and how does it work?", history: ["Tell me about the cache"])
-        #expect(withHistory.first?.chunk.sectionTitle == "Cache")
-        #expect(withoutHistory.count == withHistory.count)
+    @Test func historyChangesSearchOnlyWhenSwitchedOn() async throws {
+        var on = configuration()
+        on.history.useForSearch = true
+        let off = RAGEngine(configuration: configuration())
+        let searching = RAGEngine(configuration: on)
+        for engine in [off, searching] {
+            _ = try await engine.addDocument(DocumentIngestor.ingestText(zorp + "\n\n" + cache, title: "Mixed", id: "m"))
+        }
+        let history: [ChatTurn] = [.user("Tell me about the cache"), .assistant("It stores values.")]
+        let plain = try await off.search("and how does it work?").map(\.chunk.id)
+        let ignored = try await off.search("and how does it work?", history: history).map(\.chunk.id)
+        let used = try await searching.search("and how does it work?", history: history)
+        #expect(ignored == plain)
+        #expect(used.first?.chunk.sectionTitle == "Cache")
     }
 
     @Test func rerankerReordersAndInvalidOutputIsIgnored() async throws {

@@ -92,11 +92,14 @@ public actor RAGEngine {
     public func isPrebuilt(_ id: DocumentID) -> Bool
     public var loadIssues: [String] { get }            // unreadable files, skipped ID clashes
 
-    // Retrieval
-    public func search(_ question: String, history: [String] = [], limit: Int = 20)
+    // Retrieval — history (0.2.0): oldest first; used only when switched on in `configuration.history`
+    public func search(_ question: String, history: [ChatTurn] = [], limit: Int = 20)
         async throws -> [RetrievedChunk]
-    public func context(for question: String, history: [String] = [], tokenBudget: Int = 2000)
+    public func context(for question: String, history: [ChatTurn] = [], tokenBudget: Int = 2000)
         async throws -> RAGContext
+
+    // 0.2.0: new title, re-chunked from the stored source
+    @discardableResult public func renameDocument(id: DocumentID, to title: String) async throws -> DocumentInfo
 }
 
 public struct RAGContext: Sendable {
@@ -104,6 +107,8 @@ public struct RAGContext: Sendable {
     public let sections: [ContextSection]   // title, document, pages, score — for citations
     public let tokenCount: Int
     public let tokenCountIsEstimate: Bool
+    public var history: [ChatTurn]          // 0.2.0: recent turns that fit history.tokenBudget
+    public var historyTokenCount: Int
 }
 
 public protocol Embedder: Sendable {
@@ -117,7 +122,9 @@ public protocol Reranker: Sendable {
 ```
 
 `RAGConfiguration` holds every tunable constant (§8) plus the pluggable embedder, token counter and
-reranker (`nil` = off). `history` is **optional and empty by default**.
+reranker (`nil` = off). **History (0.2.0):** `configuration.history` has two switches, both off by
+default — `useForSearch` and `includeInContext` — so passing history changes nothing until an app
+turns them on. Details: `Docs/0.2.0-history-design.md`.
 
 ## 5. Ingest (PDF only)
 
@@ -181,9 +188,9 @@ reranker (`nil` = off). `history` is **optional and empty by default**.
   Measured on the 4 test manuals of §2 (Mac): model load 0.15–1.1 s, 0.15–0.22 s per manual, 202 KB index.
 
 **Retriever:**
-- Query text = the question, or, when `history` is given, the question followed by the last ≤ 2
-  history messages, most recent first — so the embedder's 512-token truncation only ever cuts history,
-  never the question.
+- Query text = the question, or, when `history.useForSearch` is on, the question followed by the last
+  ≤ `searchTurns` (2) **user** turns, most recent first — so the embedder's 512-token truncation only
+  ever cuts history, never the question. Assistant turns are never searched.
 - Dense ranking (cosine) and BM25 ranking (k1 1.2, b 0.75, tokens `[a-z0-9_]+`), fused with RRF
   (k = 60) → top 20 candidates.
 
@@ -222,7 +229,7 @@ reranker (`nil` = off). `history` is **optional and empty by default**.
 | RRF k | 60 |
 | candidates | 20 |
 | reranker | off (top 10 when on) |
-| history messages used | ≤ 2 |
+| history (both off by default) | search: ≤ 2 user turns; prompt: ≤ 6 turns within 600 tokens |
 | token budget | 2,000 |
 
 ## 9. Testing and evaluation
@@ -276,8 +283,8 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
   "Incompatible element type for ANE"). int16 IDs + float16 mask may allow the ANE — optional
   optimization; speed is already fine.
 - **Model distribution (decided 2026-10-25):** the 64 MB model isn't committed (`*.aimodel` is
-  ignored); it's attached to each GitHub release and fetched with `Tools/download_model.sh`. While the
-  repository is private, downloading needs GitHub access (`gh auth login`).
+  ignored); it's attached to each GitHub release and fetched with `Tools/download_model.sh` (`gh` if
+  installed, else `curl`). The repository is public, so no login is needed.
 - Cached Core AI specialization across launches on iPhone — to confirm.
 - **Exact token counting is slow per call** (found 2026-10-25 with `rag-index query`, Mac): Foundation
   Models' `tokenCount(for:)` costs ~48 ms per call regardless of length, and packing made ~50 calls,
@@ -305,3 +312,5 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
 4. **On-device verification** on iPhone and Mac.
 5. **Extraction — done (2026-10-25, moved ahead of 3–4):** moved to its own GitHub repository with its
    history, tagged `0.1.0` (0.x: the API may still change). Apps depend on tagged releases.
+6. **0.2.0 — conversation history (switchable) and `renameDocument`.** Design:
+   `Docs/0.2.0-history-design.md`; plan: `Docs/0.2.0-history-plan.md`. Changes: `CHANGELOG.md`.

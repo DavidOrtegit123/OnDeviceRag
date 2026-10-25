@@ -1,22 +1,22 @@
 public struct RetrievalSettings: Sendable, Hashable {
     public var fusionConstant = 60.0
     public var candidateCount = 20
-    public var historyMessages = 2
     public init() {}
 }
 
 /// Dense (embedding) + BM25 rankings over every chunk, merged with Reciprocal Rank Fusion.
 enum Retriever {
-    /// The question, then up to `historyMessages` recent messages, newest first — so when the
-    /// embedder truncates at 512 tokens, only history is cut.
-    static func queryText(question: String, history: [String], historyMessages: Int) -> String {
-        ([question] + history.suffix(historyMessages).reversed()).joined(separator: "\n")
+    /// The question, then up to `searchTurns` recent *user* turns, newest first — so when the
+    /// embedder truncates at 512 tokens, only history is cut. Assistant turns are never searched.
+    static func queryText(question: String, history: [ChatTurn], searchTurns: Int) -> String {
+        let recent = history.filter { $0.role == .user }.suffix(max(searchTurns, 0)).reversed().map(\.text)
+        return ([question] + recent).joined(separator: "\n")
     }
 
-    static func retrieve(question: String, history: [String], index: InMemoryIndex, embedder: any Embedder,
-                         settings: RetrievalSettings, limit: Int) async throws -> [RetrievedChunk] {
+    static func retrieve(question: String, history: [ChatTurn], searchTurns: Int, index: InMemoryIndex,
+                         embedder: any Embedder, settings: RetrievalSettings, limit: Int) async throws -> [RetrievedChunk] {
         guard !index.chunks.isEmpty else { return [] }
-        let query = queryText(question: question, history: history, historyMessages: settings.historyMessages)
+        let query = queryText(question: question, history: history, searchTurns: searchTurns)
         let queryVector = try await embedder.embed([query], as: .query)[0]
         let dense = index.denseOrder(for: queryVector)
         let keyword = index.keywordOrder(for: query)
