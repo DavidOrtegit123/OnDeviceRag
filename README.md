@@ -129,3 +129,9 @@ Tests that need the embedding model look for it at `ONDEVICE_RAG_MODEL`, default
 `~/Developer/coreai-models/exports/bge_small_buckets_float16.aimodel`, and are skipped if it's
 missing (`Tools/download_model.sh ~/Developer/coreai-models/exports` puts it there). `Tools/make_package_fixtures.py` regenerates the tokenizer files and the Python reference
 values the tests compare against.
+
+## License
+
+MIT — see `LICENSE`. The embedding model and the bundled tokenizer files
+(`Sources/OnDeviceRAG/Resources/bge-small-en-v1.5/`) come from
+[BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5), also MIT-licensed.
