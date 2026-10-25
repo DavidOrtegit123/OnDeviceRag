@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.iOS(.v27), .macOS(.v27)],
     products: [
         .library(name: "OnDeviceRAG", targets: ["OnDeviceRAG"]),
+        .executable(name: "rag-index", targets: ["rag-index"]),
     ],
     dependencies: [
         .package(url: "https://github.com/huggingface/swift-transformers", exact: "1.3.4"),
@@ -16,6 +17,7 @@ let package = Package(
             dependencies: [.product(name: "Tokenizers", package: "swift-transformers")],
             resources: [.copy("Resources/bge-small-en-v1.5")]
         ),
+        .executableTarget(name: "rag-index", dependencies: ["OnDeviceRAG"]),
         .testTarget(
             name: "OnDeviceRAGTests",
             dependencies: ["OnDeviceRAG"],
