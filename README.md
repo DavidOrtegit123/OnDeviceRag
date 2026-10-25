@@ -22,9 +22,22 @@ use: Apple's Foundation Model, an open model through Core AI, MLX, llama.cpp, or
 ## Requirements
 
 - iOS 27 / macOS 27 (Core AI), Swift 6.4 tools.
-- The embedding model `bge_small_buckets_float16.aimodel` (64 MB), exported with
-  `Tools/export_embedder.py` (`uv run export_embedder.py float16`). It is not in the repository;
-  add it to your app's bundle. The tokenizer files are bundled with the package.
+- The embedding model `bge_small_buckets_float16.aimodel` (64 MB). It isn't in the repository; each
+  release has it attached. The tokenizer files are bundled with the package.
+
+## Installation
+
+1. In Xcode: **File › Add Package Dependencies…**, enter `https://github.com/DavidOrtegit123/OnDeviceRag`,
+   choose "Up to Next Minor Version" from `0.1.0` (0.x releases may change the API), and add the
+   `OnDeviceRAG` library to your app target.
+2. Download the model and add it to your app target (drag the `.aimodel` folder into Xcode, with your
+   app target ticked):
+
+   ```bash
+   Tools/download_model.sh <your-app-folder>     # needs `gh auth login` while the repository is private
+   ```
+
+   Or rebuild it yourself with `Tools/export_embedder.py` (`uv run export_embedder.py float16`).
 
 ## Usage
 
@@ -71,8 +84,8 @@ Build and check an index on a Mac with the same code the apps run:
 
 ```bash
 M=~/Developer/coreai-models/exports/bge_small_buckets_float16.aimodel
-swift run -c release --package-path Packages/OnDeviceRAG rag-index build --model $M --output textbook.ragindex chapter1.pdf notes.md
-swift run -c release --package-path Packages/OnDeviceRAG rag-index query --model $M --index textbook.ragindex [--budget 2000] "How do I encode a list?"
+swift run -c release rag-index build --model $M --output textbook.ragindex chapter1.pdf notes.md
+swift run -c release rag-index query --model $M --index textbook.ragindex [--budget 2000] "How do I encode a list?"
 ```
 
 Document IDs are the input file names without extension, so a rebuild keeps the same IDs.
@@ -109,10 +122,10 @@ Xcode flattens resource folders into the app bundle.
 ## Tests
 
 ```bash
-swift test --package-path Packages/OnDeviceRAG
+swift test
 ```
 
 Tests that need the embedding model look for it at `ONDEVICE_RAG_MODEL`, defaulting to
 `~/Developer/coreai-models/exports/bge_small_buckets_float16.aimodel`, and are skipped if it's
-missing. `Tools/make_package_fixtures.py` regenerates the tokenizer files and the Python reference
+missing (`Tools/download_model.sh ~/Developer/coreai-models/exports` puts it there). `Tools/make_package_fixtures.py` regenerates the tokenizer files and the Python reference
 values the tests compare against.

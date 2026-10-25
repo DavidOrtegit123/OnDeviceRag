@@ -1,5 +1,7 @@
 # OnDeviceRAG — Milestone 2a Implementation Plan (persistence, prebuilt indexes, `rag-index`)
 
+> **Historical note:** written while this package lived inside a research app's repository (`Packages/OnDeviceRAG/`). Paths such as `Packages/OnDeviceRAG/…`, `evaluation/…` and `Prototype On-Device/…` refer to that repository; the 40-task retrieval check it mentions now lives there too.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **Project rule (AGENTS.md → Mandatory Pre-Coding Protocol):** before each task's first code edit, post a short What / Why / How / Alternatives pitch and wait for the researcher's approval. Commit only when the researcher says so. Commit messages carry **no AI attribution lines**.

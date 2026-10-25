@@ -1,7 +1,7 @@
 import Foundation
 
-/// Classic BM25 keyword ranking (Lucene-style IDF). Copied from the research app's
-/// `BM25Index` (same formula and tokenizer); k1 and b are parameters here.
+/// Classic BM25 keyword ranking (Lucene-style IDF) with a `[a-z0-9_]+` tokenizer; k1 and b are
+/// parameters.
 /// Good at exact names such as `zorplib` or `encode_zorp`, which embeddings tend to blur.
 struct BM25Index: Sendable {
     let k1: Double

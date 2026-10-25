@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); 2c and milestones 3–5 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
+_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); milestones 3–4 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -9,12 +9,13 @@ generation context**: the app hands it PDFs and a question, and gets back the mo
 text, packed to fit a language model's prompt. Everything runs locally — no network calls.
 
 First users:
-- this research app (Prototype On-Device) — normal chat, and optionally a later research stage;
+- a research app comparing on-device language models (its normal chat);
 - a whiteboard AI tutor (algebra, speech + whiteboard answers);
 - a coding-learning app.
 
-Developed inside this repo as a local package (`Packages/OnDeviceRAG/`), then moved to its own
-GitHub repo once it works (see §11).
+Developed first as a local package inside the research app's repository, then extracted to this
+repository with its history (§11). The milestone plans in `Docs/` were written during that phase, so
+their file paths refer to that repository.
 
 ### Non-goals (for now)
 - Answer generation. The package returns context text; the app chooses and runs the model.
@@ -24,12 +25,13 @@ GitHub repo once it works (see §11).
 
 ## 2. Evidence behind the key decisions (spike, 2026-10-22)
 
-Throwaway spike on branch `spike/embedding-iphone` (not merged), scored on the research
-project's 40 tasks (140 chunks; correct spec known per question):
+Throwaway spike, scored on a 40-document test set from the author's research project: 40 short
+fictional API/format specifications in 4 manuals (140 chunks) and 80 questions (as written / with
+names removed), the correct spec known for each:
 
 | Retriever | Correct spec in top-5 chunks (prompt as written / names removed) | In top-3 sections |
 |---|---|---|
-| Existing hybrid (BM25 + Apple `NLEmbedding`), Stage 1 | 34/40 / 29/40 | 31/40 |
+| Earlier hybrid (BM25 + Apple `NLEmbedding`) | 34/40 / 29/40 | 31/40 |
 | BM25 only (Python re-implementation) | 40/40 / 39/40 | 38/40 / 38/40 |
 | `bge-small-en-v1.5` dense only, on iPhone via Core AI | **40/40 / 40/40** | **40/40 / 40/40** |
 
@@ -115,7 +117,7 @@ public protocol Reranker: Sendable {
 ```
 
 `RAGConfiguration` holds every tunable constant (§8) plus the pluggable embedder, token counter and
-reranker (`nil` = off). `history` is **optional and empty by default** — the research runs leave it out.
+reranker (`nil` = off). `history` is **optional and empty by default**.
 
 ## 5. Ingest (PDF only)
 
@@ -161,9 +163,9 @@ reranker (`nil` = off). `history` is **optional and empty by default** — the r
   sections, chunks, embedder ID + dimension, chunk settings, the date added, its **source** (the
   extracted lines with font facts + outline for PDFs, or the original text) and its vectors as Float16
   (base64; ~1 MB for a 1,000-chunk textbook). Format version 1. *(Changed in 2a from the first draft's
-  folder of four files per document: Xcode flattens resource folders into the app bundle — the same
-  problem as the Qwen model folder in the research app — so a folder-based shipped index would collide;
-  a single file can't be flattened.)*
+  folder of four files per document: Xcode flattens resource folders into the app bundle (seen with a
+  Core AI model folder), so a folder-based shipped index would collide; a single file can't be
+  flattened.)*
 - Rebuild rules on load: chunk settings changed → re-chunk from the stored source and re-embed (no need
   for the original PDF); embedder changed or vectors damaged → re-embed; otherwise use as stored.
   Rebuilt user documents are saved back; prebuilt ones stay in memory only.
@@ -176,15 +178,14 @@ reranker (`nil` = off). `history` is **optional and empty by default** — the r
   on first launch. Document IDs = input file names, so rebuilds keep IDs. Prebuilt documents are
   read-only (can't be removed or replaced) and never written to the storage directory; a shipped
   document whose ID is already loaded is skipped. `rag-index query` prints the packed context.
-  Measured on the 4 research manuals (Mac): model load 0.15–1.1 s, 0.15–0.22 s per manual, 202 KB index.
+  Measured on the 4 test manuals of §2 (Mac): model load 0.15–1.1 s, 0.15–0.22 s per manual, 202 KB index.
 
 **Retriever:**
 - Query text = the question, or, when `history` is given, the question followed by the last ≤ 2
   history messages, most recent first — so the embedder's 512-token truncation only ever cuts history,
   never the question.
-- Dense ranking (cosine) and BM25 ranking (the research app's `BM25Index` logic, **copied** into the
-  package — the app's file stays unchanged because batch Stages 2/3 depend on it: k1 1.2, b 0.75,
-  tokens `[a-z0-9_]+`), fused with RRF (k = 60) → top 20 candidates.
+- Dense ranking (cosine) and BM25 ranking (k1 1.2, b 0.75, tokens `[a-z0-9_]+`), fused with RRF
+  (k = 60) → top 20 candidates.
 
 **Reranker (optional, off by default):**
 - `FoundationModelsReranker`: one `LanguageModelSession` call with the question and the top 10
@@ -236,7 +237,7 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
   (CC BY) and an openly licensed Python textbook. A script downloads them; PDFs aren't committed
   unless the license allows it.
 - 60–100 questions with their correct section and page; a subset of follow-up questions with a
-  preceding message (tests `history`). Drafted with AI assistance, reviewed by the researcher,
+  preceding message (tests `history`). Drafted with AI assistance, reviewed by the author,
   frozen before any results.
 - Metrics: section Recall@1 / Recall@3, MRR; also chunk Hit@5. Conditions: dense only, BM25 only,
   hybrid, hybrid + reranker; with / without history on the follow-up subset.
@@ -245,10 +246,6 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
 
 **On-device performance (iPhone 16e and Mac):** first and later model load, time to index a
 ~100-page PDF, time per question (search, rerank, pack), peak memory, thermal state.
-
-**Research (separate decision, later):** a possible exploratory "Stage 4" pass@1 run on the 40 tasks
-with this pipeline, with its own pre-specified plan. The frozen oracle protocol and existing
-results are not affected.
 
 ## 10. Known limitations and open questions
 
@@ -278,9 +275,9 @@ results are not affected.
 - **Neural Engine:** the int32 inputs keep the model on the GPU (Core AI warns
   "Incompatible element type for ANE"). int16 IDs + float16 mask may allow the ANE — optional
   optimization; speed is already fine.
-- **Model distribution in the public repo:** the 63 MB weights file is under GitHub's 100 MB limit,
-  but this repo ignores `*.aimodel`. Options for the standalone repo: commit it directly, Git LFS, or a
-  release asset fetched by a script. To decide at extraction time.
+- **Model distribution (decided 2026-10-25):** the 64 MB model isn't committed (`*.aimodel` is
+  ignored); it's attached to each GitHub release and fetched with `Tools/download_model.sh`. While the
+  repository is private, downloading needs GitHub access (`gh auth login`).
 - Cached Core AI specialization across launches on iPhone — to confirm.
 - **Exact token counting is slow per call** (found 2026-10-25 with `rag-index query`, Mac): Foundation
   Models' `tokenCount(for:)` costs ~48 ms per call regardless of length, and packing made ~50 calls,
@@ -302,14 +299,9 @@ results are not affected.
      `rag-index` CLI. Plan: `Docs/milestone-2a-plan.md`.
    - **2b — done (2026-10-25):** Vision OCR for scanned pages (package only). Plan:
      `Docs/milestone-2b-plan.md`.
-   - **2c:** integrate into this app's normal chat: newly imported PDFs keep a copy of the original
-     (older imports and photos fall back to their stored text); `referenceDocument(for:)` becomes async
-     and uses the package (Architecture Rule #4 updated when 2c is built). The explicit-pick (oracle)
-     branch and batch Stage 2/3 code stay byte-identical; `KnowledgeRetriever` stays but chat stops using it.
+   - **2c:** integration into the research app's normal chat — planned and done in that app's
+     repository, using this package as a dependency.
 3. **Benchmark:** build the harder test set; evaluate conditions; decide the reranker default.
 4. **On-device verification** on iPhone and Mac.
-5. **Extraction:** move `Packages/OnDeviceRAG/` to its own GitHub repo (with history), tag `0.1.0`,
-   switch this app to the URL dependency; README with the model-agnostic usage and limitations.
-
-Branching: milestones 1–4 on `feature/ondevice-rag` (from `main` after `feature/rag` is merged), merged
-via PR. The spike branch is discarded.
+5. **Extraction — done (2026-10-25, moved ahead of 3–4):** moved to its own GitHub repository with its
+   history, tagged `0.1.0` (0.x: the API may still change). Apps depend on tagged releases.
