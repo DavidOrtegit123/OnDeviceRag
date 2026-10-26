@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); milestones 3–4 pending. Design reviewed and approved 2026-10-22 (with the milestone-1 deviations listed in `Docs/milestone-1-plan.md`). Author: David Ortega, with AI assistance._
+_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); 0.2.0 (switchable conversation history, `renameDocument`) and 0.2.1 (`ChatTurn.recent`) released 2026-10-25 — see `CHANGELOG.md`; milestones 3–4 pending. Design reviewed and approved 2026-10-22. Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -14,8 +14,8 @@ First users:
 - a coding-learning app.
 
 Developed first as a local package inside the research app's repository, then extracted to this
-repository with its history (§11). The milestone plans in `Docs/` were written during that phase, so
-their file paths refer to that repository.
+repository with its history (§11). The task-by-task implementation plans are kept with the author's
+research notes, not in this repository.
 
 ### Non-goals (for now)
 - Answer generation. The package returns context text; the app chooses and runs the model.
@@ -124,7 +124,13 @@ public protocol Reranker: Sendable {
 `RAGConfiguration` holds every tunable constant (§8) plus the pluggable embedder, token counter and
 reranker (`nil` = off). **History (0.2.0):** `configuration.history` has two switches, both off by
 default — `useForSearch` and `includeInContext` — so passing history changes nothing until an app
-turns them on. Details: `Docs/0.2.0-history-design.md`.
+turns them on. History is `[ChatTurn]` (role + text, oldest first). `useForSearch` adds the last
+`searchTurns` (2) *user* turns to the search query (assistant turns are never searched).
+`includeInContext` fills `RAGContext.history` / `historyTokenCount` with the latest turns that fit a
+separate `tokenBudget` (600 tokens, at most `maximumTurns` = 6): newest first, stopping at the first
+turn that doesn't fit, so the result is an unbroken run of recent turns; turns are never cut.
+`ChatTurn.recent(_:settings:counter:)` applies the same rule without an engine (no embedding model
+load). `ChatTurn.format` writes turns as labeled lines. The package doesn't store conversations.
 
 ## 5. Ingest (PDF only)
 
@@ -139,7 +145,7 @@ turns them on. Details: `Docs/0.2.0-history-design.md`.
    re-runs OCR. `DocumentInfo.ocrPages` lists OCR'd pages; `pagesWithoutText` lists pages still
    under 50 characters after OCR. A failing page never fails the document; only cancellation throws.
    Switch: `RAGConfiguration.ocrScannedPages` (default on) — not in `IngestSettings`, because a
-   settings change re-chunks from the source, which can't re-run OCR. Plan: `Docs/milestone-2b-plan.md`.
+   settings change re-chunks from the source, which can't re-run OCR.
    Plain text is also accepted (`DocumentIngestor.ingestText`: sections at `## ` lines, code inside
    ``` fences) — for apps whose sources are text, and for tests.
 2. **Sections**, first that applies: the PDF outline (`PDFDocument.outlineRoot`); else headings
@@ -300,17 +306,16 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
 
 1. **Core package:** Ingest, Embedder, Index (in memory), Retriever, Context packer, `Reranker`
    protocol (the Foundation Models implementation comes with the benchmark in milestone 3) + unit
-   tests (Mac). OCR for scanned pages moves to milestone 2. Plan: `Docs/milestone-1-plan.md`.
+   tests (Mac). OCR for scanned pages moves to milestone 2.
 2. **Persistence, shipping and app integration**, in three plans:
    - **2a — done (2026-10-25):** on-disk index with rebuild rules, prebuilt read-only indexes,
-     `rag-index` CLI. Plan: `Docs/milestone-2a-plan.md`.
-   - **2b — done (2026-10-25):** Vision OCR for scanned pages (package only). Plan:
-     `Docs/milestone-2b-plan.md`.
+     `rag-index` CLI.
+   - **2b — done (2026-10-25):** Vision OCR for scanned pages (package only).
    - **2c:** integration into the research app's normal chat — planned and done in that app's
      repository, using this package as a dependency.
 3. **Benchmark:** build the harder test set; evaluate conditions; decide the reranker default.
 4. **On-device verification** on iPhone and Mac.
 5. **Extraction — done (2026-10-25, moved ahead of 3–4):** moved to its own GitHub repository with its
    history, tagged `0.1.0` (0.x: the API may still change). Apps depend on tagged releases.
-6. **0.2.0 — conversation history (switchable) and `renameDocument`.** Design:
-   `Docs/0.2.0-history-design.md`; plan: `Docs/0.2.0-history-plan.md`. Changes: `CHANGELOG.md`.
+6. **0.2.0 / 0.2.1 — done (2026-10-25):** conversation history (switchable, §4), `renameDocument`,
+   `ChatTurn.recent`. Changes: `CHANGELOG.md`.
