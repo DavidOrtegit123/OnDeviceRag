@@ -61,6 +61,38 @@ struct EnginePersistenceTests {
         #expect(info.chunkCount > original.chunkCount)
     }
 
+    @Test func settingsSavedBeforeReadingRulesExistedAreVersionOne() throws {
+        let old = try JSONDecoder().decode(IngestSettings.self, from: Data(#"{"chunkLength":400,"sectionWindowLength":1500}"#.utf8))
+        #expect(old.readingRules == 1)
+        #expect(IngestSettings().readingRules == IngestSettings.currentReadingRules)
+        #expect(IngestSettings.currentReadingRules == 2)
+        #expect(old != IngestSettings())
+    }
+
+    @Test func aDocumentReadWithOlderRulesIsReReadOnceOnOpen() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        _ = try await engine(at: directory, counter: EmbedCounter()).addDocument(DocumentIngestor.ingestText(zorp, title: "ZORP", id: "zorp"))
+        // Make the stored record look like one saved by 0.2.2 (no readingRules key).
+        let file = try #require(try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
+        func strip(_ value: Any) -> Any {
+            if let dictionary = value as? [String: Any] {
+                return dictionary.filter { $0.key != "readingRules" }.mapValues(strip)
+            }
+            if let array = value as? [Any] { return array.map(strip) }
+            return value
+        }
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file))
+        try JSONSerialization.data(withJSONObject: strip(json)).write(to: file)
+
+        let counter = EmbedCounter()
+        _ = try await engine(at: directory, counter: counter)
+        #expect(await counter.passages == 2)  // re-read from its source and re-embedded
+        let again = EmbedCounter()
+        _ = try await engine(at: directory, counter: again)
+        #expect(await again.passages == 0)  // the re-read record was saved
+    }
+
     #if os(macOS)
     @Test func pdfIsRechunkedWithoutTheOriginalFile() async throws {
         let directory = try temporaryDirectory()

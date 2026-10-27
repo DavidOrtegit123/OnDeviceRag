@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); 0.2.0 (switchable conversation history, `renameDocument`) and 0.2.1 (`ChatTurn.recent`) released 2026-10-25, 0.2.2 (history search no longer drowns a new topic) 2026-10-27 — see `CHANGELOG.md`; milestones 3–4 pending. Design reviewed and approved 2026-10-22. Author: David Ortega, with AI assistance._
+_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); 0.2.0 (switchable conversation history, `renameDocument`) and 0.2.1 (`ChatTurn.recent`) released 2026-10-25, 0.2.2 (history search no longer drowns a new topic) and 0.2.3 (PDF layout rules) 2026-10-27 — see `CHANGELOG.md`; milestones 3–4 pending. Design reviewed and approved 2026-10-22. Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -149,14 +149,29 @@ load). `ChatTurn.format` writes turns as labeled lines. The package doesn't stor
    settings change re-chunks from the source, which can't re-run OCR.
    Plain text is also accepted (`DocumentIngestor.ingestText`: sections at `## ` lines, code inside
    ``` fences) — for apps whose sources are text, and for tests.
-2. **Sections**, first that applies: the PDF outline (`PDFDocument.outlineRoot`); else headings
-   detected from font size (≥ 1.2 × median body size) or bold short lines (< 100 characters);
-   else ~1,500-character windows.
-3. **Chunks:** ≤ 400 characters, built from whole sentences within a section.
+2. **Running headers and footers (0.2.3):** a page's first or last non-blank line, no larger than
+   the body text, whose text (digit runs read as "#", so "page 2" matches "page 61") and size recur
+   as a first/last line on ≥ 50% of the pages with text (and ≥ 3 pages) is removed before sections
+   are detected. The stored source keeps it. The size limit keeps per-page headings
+   ("Exercise 1", "Exercise 2").
+3. **Sections**, first that applies: the PDF outline (`PDFDocument.outlineRoot`); else headings
+   detected from font size (≥ 1.2 × median body size) or bold short lines (< 100 characters, and —
+   since 0.2.3 — at least body size, so a small bold table header stays in its section); else
+   ~1,500-character windows. **Heading levels (0.2.3):** consecutive heading lines merge only in the
+   same size and weight (a wrapped title); a heading's nearest earlier, larger heading is its parent,
+   and the section title becomes "parent › heading" (one level), e.g. "5 Ventilation module › 5.3
+   Timeout settings" — so look-alike sections carry their chapter's name, in search and in the
+   packed context. A heading with no text of its own is dropped when the next heading is smaller
+   (its name lives on in the next titles); otherwise its words become its text.
+   **Reading rules version:** `IngestSettings.readingRules` (1 = up to 0.2.2, 2 = 0.2.3). A stored
+   document read with other rules differs from the current settings, so it's re-read from its
+   stored source (no original file needed) and re-embedded once on open; a prebuilt index is re-read
+   in memory on every open until it's rebuilt with `rag-index`.
+4. **Chunks:** ≤ 400 characters, built from whole sentences within a section.
    - **Code is never split and keeps its indentation** — lines in a monospaced font form one block
      (a block longer than 400 characters stays one chunk).
    - Each chunk records document ID, section index/title, page range and its position in the section.
-4. **Math:** extracted text may garble equations. Ingest flags pages with a high share of math
+5. **Math:** extracted text may garble equations. Ingest flags pages with a high share of math
    symbols (`metadata.mathHeavy`) so the benchmark can measure the damage. No fix yet (§10).
 
 ## 6. Embedder, Index and Retriever
@@ -297,11 +312,17 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
   topic changes: on a vague follow-up ("How long is its timeout?") history lifts the earlier topic but
   doesn't always put it first (heating's timeout stayed 3rd, as before 0.2.2). Confirm or retune on
   the milestone-3 follow-up subset. Not configurable yet.
-- **Layout found by the 63-page test manual (2026-10-27, Mac and iPhone):** a table's bold header row
-  ("Code Meaning What to do") is detected as a heading, so each table becomes its own section without
-  the name of the section it belongs to; running page footers end up inside chunk text; a chapter
-  heading with no text of its own merges with its first section ("5 Ventilation module 5.1
-  Overview"), as does the title page. Retrieval still found the right pages; address in milestone 3.
+- **Layout found by the 63-page test manual (2026-10-27, Mac and iPhone) — fixed in 0.2.3 (§5):**
+  a table's bold header row ("Code Meaning What to do") was detected as a heading, so each table
+  became its own section; running page footers ended up inside chunk text; a chapter heading with no
+  text of its own merged with its first section ("5 Ventilation module 5.1 Overview"). After the fix
+  the manual reads as its 68 real sections (+ the title-page subtitle), with no footers.
+- **Tables are still hard to retrieve.** The fix keeps a table inside its section, but a table lookup
+  worded differently from the row ("How many sensors can one controller support?" vs. "Maximum
+  sensors per controller 64") ranks low with both BM25 and embeddings: on the test manual the spec
+  section was 4th (0.2.2, table as its own section) / 7th (0.2.3) without history, and dropped out of
+  the context with history in both. A reranker (milestone 3) is the next thing to try. PDFKit also
+  splits table rows into one line per cell line, so a row's cells can interleave.
 - **Math in PDFs** may extract badly. Decide later with the whiteboard team whether to also accept
   Markdown/LaTeX source.
 - **Neural Engine:** the int32 inputs keep the model on the GPU (Core AI warns
@@ -332,9 +353,12 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
    - **2b — done (2026-10-25):** Vision OCR for scanned pages (package only).
    - **2c:** integration into the research app's normal chat — planned and done in that app's
      repository, using this package as a dependency.
-3. **Benchmark:** build the harder test set; evaluate conditions; decide the reranker default.
+3. **Benchmark:** build the harder test set; evaluate conditions; decide the reranker default and
+   confirm or retune the history-search weight (0.2.2). Measurement and those two decisions only — bugs
+   found along the way are fixed in point releases, not held for the benchmark.
 4. **On-device verification** on iPhone and Mac.
 5. **Extraction — done (2026-10-25, moved ahead of 3–4):** moved to its own GitHub repository with its
    history, tagged `0.1.0` (0.x: the API may still change). Apps depend on tagged releases.
 6. **0.2.0 / 0.2.1 — done (2026-10-25):** conversation history (switchable, §4), `renameDocument`,
-   `ChatTurn.recent`. Changes: `CHANGELOG.md`.
+   `ChatTurn.recent`. **0.2.2 / 0.2.3 — done (2026-10-27):** history search fused with the
+   question-alone search; PDF layout rules (§5). Changes: `CHANGELOG.md`.

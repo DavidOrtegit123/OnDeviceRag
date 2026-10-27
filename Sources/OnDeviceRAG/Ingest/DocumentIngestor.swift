@@ -4,7 +4,23 @@ import PDFKit
 public struct IngestSettings: Sendable, Hashable, Codable {
     public var chunkLength = 400
     public var sectionWindowLength = 1500
+    /// Version of the reading rules (headings, page headers/footers…). A stored document read with
+    /// other rules differs from the current settings, so it's re-read from its source once on open.
+    /// 1 = up to 0.2.2; 2 = 0.2.3 layout rules.
+    public internal(set) var readingRules = IngestSettings.currentReadingRules
+    static let currentReadingRules = 2
+
     public init() {}
+
+    private enum CodingKeys: String, CodingKey { case chunkLength, sectionWindowLength, readingRules }
+
+    /// Settings saved before `readingRules` existed decode as version 1.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        chunkLength = try container.decode(Int.self, forKey: .chunkLength)
+        sectionWindowLength = try container.decode(Int.self, forKey: .sectionWindowLength)
+        readingRules = try container.decodeIfPresent(Int.self, forKey: .readingRules) ?? 1
+    }
 }
 
 /// What a document was built from — kept so it can be re-chunked later without the original file.
@@ -31,6 +47,8 @@ public enum DocumentIngestor {
     /// Monospace marks code only when it's the exception: in a document at least this monospaced
     /// (e.g. a plain-text file printed to PDF) every line is treated as ordinary text.
     static let mostlyMonospacedShare = 0.8
+    /// A first or last page line recurring on at least this share of pages is a running header/footer.
+    static let runningLineShare = 0.5
 
     /// Reads a PDF; pages without a text layer (scans) are read with OCR unless `ocr` is false.
     public static func ingestPDF(at url: URL, title: String? = nil, id: DocumentID = UUID().uuidString,
@@ -75,10 +93,11 @@ public enum DocumentIngestor {
     /// Lines → sections → chunks; shared by fresh PDFs and stored PDF sources.
     static func ingest(lines: [TextLine], outline: [OutlineEntry], pageCount: Int, pagesWithoutText: [Int],
                        title: String, id: DocumentID, settings: IngestSettings) -> IngestedDocument {
-        // The source keeps the original lines; this rule is re-applied on every re-chunk.
-        let readableLines = isMostlyMonospaced(lines)
-            ? lines.map { line in var prose = line; prose.isMonospaced = false; return prose }
-            : lines
+        // The source keeps the original lines; these rules are re-applied on every re-chunk.
+        let bodyLines = removingRunningHeadersAndFooters(lines)
+        let readableLines = isMostlyMonospaced(bodyLines)
+            ? bodyLines.map { line in var prose = line; prose.isMonospaced = false; return prose }
+            : bodyLines
         let detected = SectionDetector.detect(lines: readableLines, outline: outline, documentTitle: title,
                                               windowLength: settings.sectionWindowLength)
         return assemble(sections: detected.sections, source: detected.source, title: title, id: id,
@@ -115,6 +134,40 @@ public enum DocumentIngestor {
                                 chunkCount: chunks.count, sectionSource: source,
                                 pagesWithoutText: pagesWithoutText, ocrPages: ocrPages, mathHeavyPages: mathHeavyPages)
         return IngestedDocument(info: info, sections: sections, chunks: chunks, source: documentSource)
+    }
+
+    /// Running headers and footers: a page's first or last non-blank line, no larger than the body
+    /// text, whose text (digit runs read as "#", so "page 2" matches "page 61") and font size recur
+    /// as a first or last line on at least `runningLineShare` of the pages with text, and on at least
+    /// 3 of them, is removed. The size limit keeps per-page headings ("Exercise 1", "Exercise 2").
+    static func removingRunningHeadersAndFooters(_ lines: [TextLine]) -> [TextLine] {
+        struct Key: Hashable { var text: String; var fontSize: Double }
+        func key(_ line: TextLine) -> Key {
+            let text = line.text.replacingOccurrences(of: "[0-9]+", with: "#", options: .regularExpression)
+            return Key(text: SectionDetector.normalize(text), fontSize: line.fontSize)
+        }
+        var edges: [Int: Set<Int>] = [:]  // page → indices of its first and last non-blank line
+        for (index, line) in lines.enumerated() where !line.isBlank {
+            if edges[line.page] == nil { edges[line.page] = [index] }
+        }
+        for (index, line) in lines.enumerated().reversed() where !line.isBlank {
+            if edges[line.page]?.count == 1, let first = edges[line.page]?.first, first != index {
+                edges[line.page]?.insert(index)
+            }
+        }
+        let pagesWithText = edges.count
+        guard pagesWithText >= 3,
+              let bodySize = SectionDetector.weightedMedianFontSize(lines.filter { !$0.isBlank && !$0.isMonospaced })
+        else { return lines }
+        edges = edges.mapValues { $0.filter { lines[$0].fontSize <= bodySize } }
+        var pagesPerKey: [Key: Set<Int>] = [:]
+        for (page, indices) in edges {
+            for index in indices { pagesPerKey[key(lines[index]), default: []].insert(page) }
+        }
+        let needed = max(3, Int((Double(pagesWithText) * runningLineShare).rounded(.up)))
+        let running = Set(edges.values.flatMap { $0 }.filter { pagesPerKey[key(lines[$0])]!.count >= needed })
+        guard !running.isEmpty else { return lines }
+        return lines.enumerated().filter { !running.contains($0.offset) }.map(\.element)
     }
 
     private static func isMostlyMonospaced(_ lines: [TextLine]) -> Bool {
