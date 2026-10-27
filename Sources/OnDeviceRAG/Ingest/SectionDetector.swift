@@ -54,8 +54,15 @@ enum SectionDetector {
     // MARK: - Headings
 
     /// A heading is a non-monospaced line, 1–99 characters, not ending in ".", that is either
-    /// ≥ 1.2 × the body font size or bold while body text isn't. Consecutive heading lines
-    /// merge into one title. Needs ≥ 2 headings; text before the first joins the first section.
+    /// ≥ 1.2 × the body font size, or bold (while body text isn't) and at least body size — so a
+    /// small bold table header stays in its section. Consecutive heading lines in the same size
+    /// and weight merge into one title (a wrapped title). Needs ≥ 2 headings; text before the first
+    /// joins the first section.
+    ///
+    /// Levels: a heading's parent is the nearest earlier heading in a larger font, and the title
+    /// becomes "parent › heading" (one level), so look-alike sections ("Timeout settings") carry
+    /// their chapter's name. A heading with no text of its own is dropped when the next heading is
+    /// smaller (its name lives on in its children's titles); otherwise its words become its text.
     private static func fromHeadings(_ lines: [TextLine]) -> [DetectedSection]? {
         let body = lines.filter { !$0.isBlank && !$0.isMonospaced }
         guard let bodySize = weightedMedianFontSize(body) else { return nil }
@@ -64,39 +71,65 @@ enum SectionDetector {
         func isHeading(_ line: TextLine) -> Bool {
             let text = line.text.trimmingCharacters(in: .whitespaces)
             guard !line.isMonospaced, (1..<100).contains(text.count), !text.hasSuffix(".") else { return false }
-            return line.fontSize >= 1.2 * bodySize || (line.isBold && !bodyIsBold)
+            return line.fontSize >= 1.2 * bodySize || (line.isBold && !bodyIsBold && line.fontSize >= bodySize)
         }
 
-        var sections: [DetectedSection] = []
+        struct Raw {
+            var title: String
+            var heading: TextLine
+            var lines: [TextLine] = []
+            var hasText: Bool { lines.contains { !$0.isBlank } }
+        }
+        var raws: [Raw] = []
         var preamble: [TextLine] = []
         var previousWasHeading = false
         for line in lines {
             if isHeading(line) {
                 let title = line.text.trimmingCharacters(in: .whitespaces)
-                if previousWasHeading, let last = sections.indices.last {
-                    sections[last].title += " " + title
+                if previousWasHeading, let last = raws.indices.last,
+                   raws[last].heading.fontSize == line.fontSize, raws[last].heading.isBold == line.isBold {
+                    raws[last].title += " " + title
                 } else {
-                    sections.append(DetectedSection(title: title, lines: []))
+                    raws.append(Raw(title: title, heading: line))
                 }
                 previousWasHeading = true
             } else {
                 if !line.isBlank { previousWasHeading = false }
-                if sections.isEmpty {
+                if raws.isEmpty {
                     preamble.append(line)
                 } else {
-                    sections[sections.count - 1].lines.append(line)
+                    raws[raws.count - 1].lines.append(line)
                 }
             }
         }
-        guard sections.count >= 2 else { return nil }
+        guard raws.count >= 2 else { return nil }
         if preamble.contains(where: { !$0.isBlank }) {
-            sections[0].lines = preamble + sections[0].lines
+            raws[0].lines = preamble + raws[0].lines
+        }
+
+        var sections: [DetectedSection] = []
+        var larger: [(size: Double, title: String)] = []  // open headings, font size decreasing
+        for (position, raw) in raws.enumerated() {
+            let size = raw.heading.fontSize
+            while let last = larger.last, last.size <= size { larger.removeLast() }
+            let title = larger.last.map { "\($0.title) › \(raw.title)" } ?? raw.title
+            larger.append((size, raw.title))
+
+            if raw.hasText {
+                sections.append(DetectedSection(title: title, lines: raw.lines))
+            } else if position + 1 < raws.count, raws[position + 1].heading.fontSize < size {
+                continue  // a parent: its name is in the next titles
+            } else {
+                var words = raw.heading
+                words.text = raw.title
+                sections.append(DetectedSection(title: title, lines: [words] + raw.lines))
+            }
         }
         return sections
     }
 
     /// Median font size where each line counts once per character.
-    private static func weightedMedianFontSize(_ lines: [TextLine]) -> Double? {
+    static func weightedMedianFontSize(_ lines: [TextLine]) -> Double? {
         let sizes = lines.map { (size: $0.fontSize, weight: $0.text.count) }.sorted { $0.size < $1.size }
         let total = sizes.reduce(0) { $0 + $1.weight }
         guard total > 0 else { return nil }

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.3
+
+- **PDF layout rules**, found with a 63-page test manual:
+  - Bold text smaller than the body (e.g. a table's header row) is no longer a heading, so a table
+    stays inside its section instead of becoming a section of its own.
+  - Running page headers and footers (a first or last page line, no larger than the body text,
+    repeating on at least half the pages, digits ignored) are removed from the indexed text; the
+    stored source keeps them.
+  - Heading levels: a chapter heading is no longer merged with the section heading below it; each
+    section's title carries its nearest larger heading — "5 Ventilation module › 5.3 Timeout
+    settings" — so look-alike sections name their chapter, in search and in the packed context.
+- **Documents read with older rules are re-read automatically** once on open, from their stored
+  source (`IngestSettings.readingRules`, 1 → 2), and re-embedded. Prebuilt `.ragindex` files are
+  re-read in memory on every open until rebuilt with `rag-index build`.
+- **Not fixed:** a table lookup worded differently from the row still ranks low (the test manual's
+  "How many sensors can one controller support?"). See the design doc's limitations.
+- No API change; stored documents and `.ragindex` files keep format version 1.
+
 ## 0.2.2
 
 - **History search no longer drowns a new topic.** With `history.useForSearch` on, the question is
