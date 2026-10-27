@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.2
+
+- **History search no longer drowns a new topic.** With `history.useForSearch` on, the question is
+  now searched alone *and* with the recent user turns, and the rankings are fused with weight 2 for
+  the question alone and 1 for the history search. Before, the only query was question + history,
+  so after two questions on other topics a new question's answer could drop out of the context.
+  On a 63-page test manual this brings the right section back on every topic change (one was
+  missing) and keeps or improves follow-ups. Without history nothing changes. Costs one extra
+  query embedding when history is used.
+- `rag-index query --history "<earlier question>"` (repeatable, oldest first) searches with chat
+  history, to reproduce an app's search on a Mac.
+- No API or file format change.
+
 ## 0.2.1
 
 - `ChatTurn.recent(_:settings:counter:)`: the latest turns that fit a history budget, without an
