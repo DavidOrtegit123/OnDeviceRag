@@ -291,6 +291,17 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
   back: PDFKit reports the private `.SF…` font as Times New Roman (found 2026-10-22 in milestone 1).
   Headings are then detected by size only and code isn't recognized as code. Named fonts
   (Helvetica, Menlo, Courier…) are read correctly. Check with real PDFs in the milestone-3 benchmark.
+- **History search weight (0.2.2) is a first estimate.** Weights 2 (question alone) : 1 (question +
+  history) were chosen on 11 cases from one 63-page test manual, comparing only equal weights and
+  2 : 1, and are reported on the same cases — so the numbers in §6 are optimistic. The weight favors
+  topic changes: on a vague follow-up ("How long is its timeout?") history lifts the earlier topic but
+  doesn't always put it first (heating's timeout stayed 3rd, as before 0.2.2). Confirm or retune on
+  the milestone-3 follow-up subset. Not configurable yet.
+- **Layout found by the 63-page test manual (2026-10-27, Mac and iPhone):** a table's bold header row
+  ("Code Meaning What to do") is detected as a heading, so each table becomes its own section without
+  the name of the section it belongs to; running page footers end up inside chunk text; a chapter
+  heading with no text of its own merges with its first section ("5 Ventilation module 5.1
+  Overview"), as does the title page. Retrieval still found the right pages; address in milestone 3.
 - **Math in PDFs** may extract badly. Decide later with the whiteboard team whether to also accept
   Markdown/LaTeX source.
 - **Neural Engine:** the int32 inputs keep the model on the GPU (Core AI warns
