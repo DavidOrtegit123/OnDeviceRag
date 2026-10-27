@@ -36,4 +36,12 @@ struct SearchTests {
         #expect(abs(fused[0].score - (1.0 / 61 + 1.0 / 62)) < 1e-12)
         #expect(fused[3].score == 0)
     }
+
+    @Test func rrfWeightsScaleEachRanking() {
+        // Unweighted, item 1 (1st in B) would tie item 0 (1st in A); weight 2 on A puts item 0 first.
+        let fused = RankFusion.fuse([[0], [1]], weights: [2, 1], count: 2, constant: 60)
+        #expect(fused.map(\.index) == [0, 1])
+        #expect(abs(fused[0].score - 2.0 / 61) < 1e-12)
+        #expect(abs(fused[1].score - 1.0 / 61) < 1e-12)
+    }
 }

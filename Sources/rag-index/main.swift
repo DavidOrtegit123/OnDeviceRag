@@ -6,7 +6,9 @@ import OnDeviceRAG
 let usage = """
 usage:
   rag-index build --model <bge.aimodel> --output <file.ragindex> <input.pdf|.md|.txt>...
-  rag-index query --model <bge.aimodel> --index <file.ragindex> [--budget <tokens>] <question...>
+  rag-index query --model <bge.aimodel> --index <file.ragindex> [--budget <tokens>]
+                  [--history <earlier question>]... <question...>
+  --history adds an earlier user question (oldest first) and searches with it, like chat history.
 """
 
 struct Options {
@@ -14,6 +16,7 @@ struct Options {
     var output: URL?
     var index: URL?
     var budget = 2000
+    var history: [ChatTurn] = []
     var positional: [String] = []
 }
 
@@ -27,12 +30,13 @@ func parse(_ arguments: ArraySlice<String>) -> Options {
     var remaining = arguments
     while let argument = remaining.popFirst() {
         switch argument {
-        case "--model", "--output", "--index", "--budget":
+        case "--model", "--output", "--index", "--budget", "--history":
             guard let value = remaining.popFirst() else { fail("missing value for \(argument)\n\n\(usage)") }
             switch argument {
             case "--model": options.model = URL(fileURLWithPath: value)
             case "--output": options.output = URL(fileURLWithPath: value)
             case "--index": options.index = URL(fileURLWithPath: value)
+            case "--history": options.history.append(.user(value))
             default:
                 guard let budget = Int(value), budget > 0 else { fail("--budget needs a positive number") }
                 options.budget = budget
@@ -51,7 +55,9 @@ guard let modelURL = options.model else { fail("--model is required\n\n\(usage)"
 
 let clock = ContinuousClock()
 let loadStart = clock.now
-let engine = RAGEngine(configuration: RAGConfiguration(embedder: try await BGESmallEmbedder(modelURL: modelURL)))
+var configuration = RAGConfiguration(embedder: try await BGESmallEmbedder(modelURL: modelURL))
+configuration.history.useForSearch = !options.history.isEmpty
+let engine = RAGEngine(configuration: configuration)
 print("model loaded in \(clock.now - loadStart)")
 
 switch command {
@@ -83,7 +89,7 @@ case "query":
     try await engine.addPrebuiltIndex(at: indexURL)
     let question = options.positional.joined(separator: " ")
     let start = clock.now
-    let context = try await engine.context(for: question, tokenBudget: options.budget)
+    let context = try await engine.context(for: question, history: options.history, tokenBudget: options.budget)
     print("query took \(clock.now - start); \(context.tokenCount) tokens\(context.tokenCountIsEstimate ? " (estimate)" : "")")
     for section in context.sections {
         print("- \(section.title) (\(section.documentTitle), \(section.pages.label))\(section.isWholeSection ? "" : " [window]")")

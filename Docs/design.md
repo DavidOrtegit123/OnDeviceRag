@@ -1,6 +1,6 @@
 # OnDeviceRAG — Design
 
-_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); 0.2.0 (switchable conversation history, `renameDocument`) and 0.2.1 (`ChatTurn.recent`) released 2026-10-25 — see `CHANGELOG.md`; milestones 3–4 pending. Design reviewed and approved 2026-10-22. Author: David Ortega, with AI assistance._
+_Status: milestones 1, 2a (persistence, prebuilt indexes, `rag-index`) and 2b (OCR for scanned pages) implemented and Mac-tested (2026-10-22 / 2026-10-25); extracted to its own repository and released as `0.1.0` (2026-10-25); 0.2.0 (switchable conversation history, `renameDocument`) and 0.2.1 (`ChatTurn.recent`) released 2026-10-25, 0.2.2 (history search no longer drowns a new topic) 2026-10-27 — see `CHANGELOG.md`; milestones 3–4 pending. Design reviewed and approved 2026-10-22. Author: David Ortega, with AI assistance._
 
 ## 1. Goal
 
@@ -125,7 +125,8 @@ public protocol Reranker: Sendable {
 reranker (`nil` = off). **History (0.2.0):** `configuration.history` has two switches, both off by
 default — `useForSearch` and `includeInContext` — so passing history changes nothing until an app
 turns them on. History is `[ChatTurn]` (role + text, oldest first). `useForSearch` adds the last
-`searchTurns` (2) *user* turns to the search query (assistant turns are never searched).
+`searchTurns` (2) *user* turns to a second search, fused with the question-alone search (0.2.2, §7
+Retriever; assistant turns are never searched).
 `includeInContext` fills `RAGContext.history` / `historyTokenCount` with the latest turns that fit a
 separate `tokenBudget` (600 tokens, at most `maximumTurns` = 6): newest first, stopping at the first
 turn that doesn't fit, so the result is an unbroken run of recent turns; turns are never cut.
@@ -194,11 +195,18 @@ load). `ChatTurn.format` writes turns as labeled lines. The package doesn't stor
   Measured on the 4 test manuals of §2 (Mac): model load 0.15–1.1 s, 0.15–0.22 s per manual, 202 KB index.
 
 **Retriever:**
-- Query text = the question, or, when `history.useForSearch` is on, the question followed by the last
-  ≤ `searchTurns` (2) **user** turns, most recent first — so the embedder's 512-token truncation only
-  ever cuts history, never the question. Assistant turns are never searched.
-- Dense ranking (cosine) and BM25 ranking (k1 1.2, b 0.75, tokens `[a-z0-9_]+`), fused with RRF
-  (k = 60) → top 20 candidates.
+- Query text = the question. When `history.useForSearch` is on, a second query is the question
+  followed by the last ≤ `searchTurns` (2) **user** turns, most recent first — so the embedder's
+  512-token truncation only ever cuts history, never the question. Assistant turns are never searched.
+- Dense ranking (cosine) and BM25 ranking (k1 1.2, b 0.75, tokens `[a-z0-9_]+`) per query, fused
+  with RRF (k = 60) → top 20 candidates. With history (0.2.2) the four rankings are fused with
+  weights 2 (question alone) and 1 (question + history). Until 0.2.1 the only query was question +
+  history, and on a 63-page test manual two earlier questions on other topics pushed a new
+  question's answer out of the context (the spec table for "How many sensors can one controller
+  support?"). Measured there (rank of the right section for 6 topic changes / 5 follow-ups):
+  combined query 1, 4, 1, 1, 5, missing / 3, 2, 4, 7, 1; equal weights 1, 1, 1, 1, 2, missing /
+  3, 1, 1, 6, 2; weights 2 : 1 1, 1, 1, 1, 1, 9 / 3, 1, 1, 6, 2. Without history: one search,
+  unchanged scores.
 
 **Reranker (optional, off by default):**
 - `FoundationModelsReranker`: one `LanguageModelSession` call with the question and the top 10
@@ -283,6 +291,17 @@ and always includes the top chunk, tokenizer IDs identical to Python, embedder p
   back: PDFKit reports the private `.SF…` font as Times New Roman (found 2026-10-22 in milestone 1).
   Headings are then detected by size only and code isn't recognized as code. Named fonts
   (Helvetica, Menlo, Courier…) are read correctly. Check with real PDFs in the milestone-3 benchmark.
+- **History search weight (0.2.2) is a first estimate.** Weights 2 (question alone) : 1 (question +
+  history) were chosen on 11 cases from one 63-page test manual, comparing only equal weights and
+  2 : 1, and are reported on the same cases — so the numbers in §6 are optimistic. The weight favors
+  topic changes: on a vague follow-up ("How long is its timeout?") history lifts the earlier topic but
+  doesn't always put it first (heating's timeout stayed 3rd, as before 0.2.2). Confirm or retune on
+  the milestone-3 follow-up subset. Not configurable yet.
+- **Layout found by the 63-page test manual (2026-10-27, Mac and iPhone):** a table's bold header row
+  ("Code Meaning What to do") is detected as a heading, so each table becomes its own section without
+  the name of the section it belongs to; running page footers end up inside chunk text; a chapter
+  heading with no text of its own merges with its first section ("5 Ventilation module 5.1
+  Overview"), as does the title page. Retrieval still found the right pages; address in milestone 3.
 - **Math in PDFs** may extract badly. Decide later with the whiteboard team whether to also accept
   Markdown/LaTeX source.
 - **Neural Engine:** the int32 inputs keep the model on the GPU (Core AI warns
